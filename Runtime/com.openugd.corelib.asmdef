@@ -1,0 +1,18 @@
+{
+    "name": "com.openugd.corelib",
+    "rootNamespace": "OpenUGD",
+    "references": [
+        "com.openugd.lifetime",
+        "com.openugd.signal",
+        "com.openugd.dependency.injection"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

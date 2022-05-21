@@ -1,0 +1,19 @@
+{
+    "name": "com.openugd.corelib",
+    "displayName": "Core Lib",
+    "version": "0.1.0",
+    "unity": "2021.3",
+    "author": "https://github.com/dorofiykolya",
+    "description": "require .NET 4x\n",
+    "keywords": [
+        "core",
+        "lib",
+        "corelib"
+    ],
+    "dependencies": {
+        "com.openugd.lifetime": "1.0.0",
+        "com.openugd.signal": "1.0.0",
+        "com.openugd.dependency.injection": "0.1.0"
+    },
+    "category": "Unity"
+}

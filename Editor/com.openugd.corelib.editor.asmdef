@@ -1,0 +1,18 @@
+{
+    "name": "com.openugd.corelib.editor",
+    "rootNamespace": "OpenUGD",
+    "references": [
+        "com.openugd.corelib"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
