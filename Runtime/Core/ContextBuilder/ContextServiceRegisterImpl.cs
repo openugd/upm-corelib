@@ -109,23 +109,18 @@ namespace OpenUGD.Core.ContextBuilder
                     OnComplete(logger, task, $"{service.GetType().Name}.OnAwake->Completed");
                 }
 
+                if (_options.InitializationStrategy == ContextServiceInitializationStrategy.Sequential)
+                {
+                    await task;
+                }
+
                 if (lifetime.IsTerminated)
                 {
                     return;
                 }
             }
 
-            if (_options.InitializationStrategy == ContextServiceInitializationStrategy.Sequential)
-            {
-                foreach (var task in tasks)
-                {
-                    await task;
-                }
-            }
-            else
-            {
-                await Task.WhenAll(tasks);
-            }
+            await Task.WhenAll(tasks);
         }
 
         internal async Task Initialize(Logger logger)
@@ -150,23 +145,18 @@ namespace OpenUGD.Core.ContextBuilder
                     OnComplete(logger, task, $"{service.GetType().Name}.OnInitialize->Completed");
                 }
 
+                if (_options.InitializationStrategy == ContextServiceInitializationStrategy.Sequential)
+                {
+                    await task;
+                }
+
                 if (service.Lifetime.IsTerminated)
                 {
                     return;
                 }
             }
 
-            if (_options.InitializationStrategy == ContextServiceInitializationStrategy.Sequential)
-            {
-                foreach (var task in tasks)
-                {
-                    await task;
-                }
-            }
-            else
-            {
-                await Task.WhenAll(tasks);
-            }
+            await Task.WhenAll(tasks);
         }
 
         private async void OnComplete(Logger logger, Task task, string message)
@@ -178,7 +168,7 @@ namespace OpenUGD.Core.ContextBuilder
             }
             catch (Exception e)
             {
-                logger.E(message);
+                logger.E($"{e}\n{message}");
                 throw;
             }
         }

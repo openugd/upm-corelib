@@ -44,12 +44,13 @@ namespace OpenUGD.Services
             {
                 if (service.Lifetime.IsTerminated)
                 {
-                    throw new InvalidOperationException($"{service} cannot be terminated");
+                    throw new InvalidOperationException($"{service}.{nameof(OnAwake)} cannot be terminated");
                 }
 
                 if (service.State != ServiceState.Created)
                 {
-                    throw new InvalidOperationException($"{service} has to have {ServiceState.Created} state");
+                    throw new InvalidOperationException(
+                        $"{service} expects a {ServiceState.Created} state, but receives {service.State}");
                 }
 
                 service.State = ServiceState.Awaking;
@@ -61,7 +62,8 @@ namespace OpenUGD.Services
                     await t;
                     if (service.State != ServiceState.Awaking)
                     {
-                        throw new InvalidOperationException($"{service} has to have {ServiceState.Awaking} state");
+                        throw new InvalidOperationException(
+                            $"{service} expects an {ServiceState.Awaking} state, but receives {service.State}");
                     }
 
                     service.State = ServiceState.WokeUp;
@@ -75,12 +77,13 @@ namespace OpenUGD.Services
             {
                 if (service.Lifetime.IsTerminated)
                 {
-                    throw new InvalidOperationException($"{service} cannot be terminated");
+                    throw new InvalidOperationException($"{service}.{nameof(OnInitialize)} cannot be terminated");
                 }
 
                 if (service.State != ServiceState.WokeUp)
                 {
-                    throw new InvalidOperationException($"{service} has to have {ServiceState.WokeUp} state");
+                    throw new InvalidOperationException(
+                        $"{service} expects a {ServiceState.WokeUp} state, but receives {service.State}");
                 }
 
                 service.State = ServiceState.Initializing;
@@ -92,7 +95,8 @@ namespace OpenUGD.Services
                     await t;
                     if (service.State != ServiceState.Initializing)
                     {
-                        throw new InvalidOperationException($"{service} has to have {ServiceState.Initializing} state");
+                        throw new InvalidOperationException(
+                            $"{service} expects an {ServiceState.Initializing} state, but receives {service.State}");
                     }
 
                     service.State = ServiceState.Initialized;
