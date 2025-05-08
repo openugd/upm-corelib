@@ -2,6 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Pool;
 using Object = UnityEngine.Object;
 
 namespace OpenUGD.Utils
@@ -9,11 +10,13 @@ namespace OpenUGD.Utils
     public class PrefabResourceManager : IDisposable
     {
         protected readonly ICoroutineProvider _coroutineProvider;
+        private readonly Lifetime _lifetime;
         private readonly Dictionary<string, ResourceResult> _map;
 
         public PrefabResourceManager(ICoroutineProvider coroutineProvider, Lifetime lifetime)
         {
             _coroutineProvider = coroutineProvider;
+            _lifetime = lifetime;
             _map = new Dictionary<string, ResourceResult>();
         }
 
@@ -31,15 +34,15 @@ namespace OpenUGD.Utils
 
             if (!_map.TryGetValue(prefab, out result))
             {
-                result = InstantiateResourceResult(prefab);
+                result = CreateResourceResult(prefab, _lifetime);
                 _map[prefab] = result;
             }
 
             return result;
         }
 
-        protected virtual ResourceResult InstantiateResourceResult(string prefab) =>
-            new(_coroutineProvider, prefab);
+        protected virtual ResourceResult CreateResourceResult(string prefab, Lifetime lifetime) =>
+            new(_coroutineProvider, prefab, lifetime);
 
         public void Collect()
         {
@@ -60,30 +63,28 @@ namespace OpenUGD.Utils
             private readonly ICoroutineProvider _coroutineProvider;
 
             private readonly List<GameObject> _instances;
-            private readonly Signal<ResourceResult> _onResult;
             private readonly Stack<GameObject> _pool;
+            private readonly List<Action<ResourceResult>> _onResult;
+            private readonly string _prefabPath;
             private Coroutine _coroutine;
             private ResourceRequest _loadAsync;
-            protected string _prefab;
             private bool _unload;
 
-            public ResourceResult(ICoroutineProvider coroutineProvider, string prefab)
+            public ResourceResult(ICoroutineProvider coroutineProvider, string prefab, Lifetime lifetime)
             {
                 _instances = new List<GameObject>();
                 _pool = new Stack<GameObject>();
                 _coroutineProvider = coroutineProvider;
-                _prefab = prefab;
-                _onResult = new Signal<ResourceResult>(Lifetime.Eternal);
+                _prefabPath = prefab;
+                _onResult = new List<Action<ResourceResult>>(1);
             }
 
             public float Progress { get; private set; }
-
             public bool IsCompleted { get; private set; }
             public bool IsError { get; private set; }
             public int Instances => _instances.Count;
             public GameObject Prefab { get; private set; }
-
-            public string PrefabName => _prefab;
+            public string PrefabPath => _prefabPath;
 
             public void Dispose()
             {
@@ -122,7 +123,7 @@ namespace OpenUGD.Utils
                     if (prefab == null)
                     {
                         throw new InvalidOperationException(
-                            $"The Object you want to instantiate is null., prefab path: {_prefab}");
+                            $"The Object you want to instantiate is null., prefab path: {_prefabPath}");
                     }
 
                     instance = Object.Instantiate(prefab).GetComponent<T>();
@@ -145,7 +146,7 @@ namespace OpenUGD.Utils
                     if (prefab == null)
                     {
                         throw new InvalidOperationException(
-                            $"The Object you want to instantiate is null., prefab path: {_prefab}");
+                            $"The Object you want to instantiate is null., prefab path: {_prefabPath}");
                     }
 
                     instance = Object.Instantiate(prefab);
@@ -172,7 +173,7 @@ namespace OpenUGD.Utils
                     if (prefab == null)
                     {
                         throw new InvalidOperationException(
-                            $"The Object you want to instantiate is null., prefab path: {_prefab}");
+                            $"The Object you want to instantiate is null., prefab path: {_prefabPath}");
                     }
 
                     instance = ((GameObject)Object.Instantiate((Object)prefab, transform, false)).GetComponent(type);
@@ -196,7 +197,7 @@ namespace OpenUGD.Utils
                     if (prefab == null)
                     {
                         throw new InvalidOperationException(
-                            $"The Object you want to instantiate is null., prefab path: {_prefab}");
+                            $"The Object you want to instantiate is null., prefab path: {_prefabPath}");
                     }
 
                     instance = Object.Instantiate(prefab, transform, false);
@@ -232,17 +233,17 @@ namespace OpenUGD.Utils
 
                 if (value == null)
                 {
-                    throw new NullReferenceException("value can't bee null:" + _prefab);
+                    throw new NullReferenceException("value can't bee null:" + _prefabPath);
                 }
 
                 if (_pool.Contains(value))
                 {
-                    throw new ArgumentException("pool contains this gameObject: " + _prefab);
+                    throw new ArgumentException("pool contains this gameObject: " + _prefabPath);
                 }
 
                 if (!_instances.Contains(value))
                 {
-                    throw new ArgumentException("gameObject not in instance list: " + _prefab +
+                    throw new ArgumentException("gameObject not in instance list: " + _prefabPath +
                                                 ", value in pool: " + _pool.Contains(value));
                 }
 
@@ -268,22 +269,23 @@ namespace OpenUGD.Utils
                 return this;
             }
 
-            public virtual ResourceResult LoadAsync(Lifetime lifetime, Action<ResourceResult> onResult)
+            public ResourceResult LoadAsync(Lifetime lifetime, Action<ResourceResult> onResult)
             {
-                SubscribeResult(lifetime, onResult);
-
                 if (IsCompleted)
                 {
-                    FireOnResult();
+                    onResult(this);
                 }
                 else
                 {
+                    _onResult.Add(onResult);
+                    lifetime.AddAction(() => _onResult.Remove(onResult));
+
                     if (_loadAsync == null)
                     {
                         IsCompleted = false;
                         IsError = false;
                         _unload = false;
-                        _loadAsync = Resources.LoadAsync<GameObject>(_prefab);
+                        _loadAsync = Resources.LoadAsync<GameObject>(_prefabPath);
                         StopCoroutine();
                         _coroutine = _coroutineProvider.StartCoroutine(LoadAsyncProcess());
                     }
@@ -292,12 +294,43 @@ namespace OpenUGD.Utils
                 return this;
             }
 
-            protected void SubscribeResult(Lifetime lifetime, Action<ResourceResult> onResult)
+            public ResourceResult LoadAsync(Action<ResourceResult> onResult)
             {
-                if (!lifetime.IsTerminated)
+                if (IsCompleted)
                 {
-                    _onResult.Subscribe(lifetime, onResult);
+                    onResult(this);
                 }
+                else
+                {
+                    _onResult.Add(onResult);
+
+                    if (_loadAsync == null)
+                    {
+                        IsCompleted = false;
+                        IsError = false;
+                        _unload = false;
+                        _loadAsync = Resources.LoadAsync<GameObject>(_prefabPath);
+                        StopCoroutine();
+                        _coroutine = _coroutineProvider.StartCoroutine(LoadAsyncProcess());
+                    }
+                }
+
+                return this;
+            }
+
+            public ResourceResult LoadAsync()
+            {
+                if (_loadAsync == null)
+                {
+                    IsCompleted = false;
+                    IsError = false;
+                    _unload = false;
+                    _loadAsync = Resources.LoadAsync<GameObject>(_prefabPath);
+                    StopCoroutine();
+                    _coroutine = _coroutineProvider.StartCoroutine(LoadAsyncProcess());
+                }
+
+                return this;
             }
 
             private IEnumerator LoadAsyncProcess()
@@ -326,10 +359,18 @@ namespace OpenUGD.Utils
                     HandleError();
                 }
 
-                FireOnResult();
+                var pool = ListPool<Action<ResourceResult>>.Get();
+                pool.AddRange(_onResult);
+                _onResult.Clear();
+                foreach (var action in pool)
+                {
+                    action(this);
+                }
+
+                ListPool<Action<ResourceResult>>.Release(pool);
             }
 
-            protected void HandleComplete(GameObject prefab)
+            private void HandleComplete(GameObject prefab)
             {
                 IsCompleted = true;
                 Prefab = prefab;
@@ -337,7 +378,7 @@ namespace OpenUGD.Utils
                 Debug.Log($"ResourceResult.HandleComplete {Prefab}");
             }
 
-            protected void HandleError() => IsError = true;
+            private void HandleError() => IsError = true;
 
             private void StopCoroutine()
             {
@@ -347,12 +388,10 @@ namespace OpenUGD.Utils
                 }
             }
 
-            protected void FireOnResult() => _onResult.Fire(this);
-
-            private GameObject GetPrefab() => Prefab ?? (Prefab = Resources.Load<GameObject>(_prefab));
+            private GameObject GetPrefab() => Prefab ?? (Prefab = Resources.Load<GameObject>(_prefabPath));
 
             public override string ToString() =>
-                $"[Resource Name {PrefabName}, Prefab {Prefab}, Completed {IsCompleted}, Error {IsError}]";
+                $"[Resource Name {PrefabPath}, Prefab {Prefab}, Completed {IsCompleted}, Error {IsError}]";
         }
     }
 }
