@@ -1,8 +1,9 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 
 namespace OpenUGD.Services.UI
 {
-    public class UIComponentProviderContext
+    public class UIComponentProviderContext : IDisposable
     {
         private readonly Lifetime.Definition _definition;
 
@@ -16,6 +17,9 @@ namespace OpenUGD.Services.UI
 
         public Lifetime Lifetime => _definition.Lifetime;
 
+        public void Dispose() => _definition.Dispose();
+
+        [Obsolete("Use Dispose instead.")]
         public void Terminate() => _definition.Terminate();
     }
 }

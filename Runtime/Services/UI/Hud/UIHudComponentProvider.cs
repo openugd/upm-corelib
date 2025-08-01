@@ -6,10 +6,10 @@ namespace OpenUGD.Services.UI.Hud
 {
     public class UIHudComponentProvider : IUIComponentProvider
     {
-        public void Provide(Lifetime lifetime, string path, Type type, Action<UIComponentProviderContext> onResult)
+        public void Provide(Lifetime lifetime, Options options, Type type, Action<UIComponentProviderContext> onResult)
         {
             var def = lifetime.DefineNested();
-            _prefabResourceManager.GetPrefab(path).LoadAsync(def.Lifetime, result => {
+            _prefabResourceManager.GetPrefab(options.Path).LoadAsync(def.Lifetime, result => {
                 def.Terminate();
 
                 var parent = _transformProvider.Hud;

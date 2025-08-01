@@ -4,6 +4,11 @@ namespace OpenUGD.Services.UI
 {
     public interface IUIComponentProvider
     {
-        void Provide(Lifetime lifetime, string path, Type type, Action<UIComponentProviderContext> onResult);
+        void Provide(
+            Lifetime lifetime,
+            Options options,
+            Type targetType,
+            Action<UIComponentProviderContext> onResult
+        );
     }
 }

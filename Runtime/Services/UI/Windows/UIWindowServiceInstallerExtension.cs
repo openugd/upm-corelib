@@ -9,26 +9,26 @@ namespace OpenUGD.Services.UI.Windows
     {
         public static void AddWindowsService(this IUIContextServiceSetup setup)
         {
-            var provider = new WindowsProvider();
+            var provider = new UIWindowService();
             setup.Injector.ToValue<IUIWindowsProvider>(provider);
             setup.Injector.ToValue<IUIWindowsRegister>(provider);
-
-            setup.AddService<IUIWindowService>(() => new UIWindowService());
+            setup.AddService<IUIWindowService>(() => provider);
         }
 
+        public static void AddWindow<TWidget>(this IUIContextServiceSetup setup, Action<WindowOptions> options)
+            where TWidget : Widget =>
+            setup.Resolve<IUIWindowsRegister>().AddWindow(
+                lifetime: setup.Lifetime,
+                type: typeof(TWidget),
+                options: opt => options(
+                    opt.SetInjector(setup.Injector)
+                )
+            );
+
+        [Obsolete("Use AddWindow() instead.")]
         public static void RegisterWindow<TWidget>(this IUIContextServiceSetup setup, string path, bool isFullscreen,
             IUIComponentProvider provider = null)
             where TWidget : Widget =>
             setup.Resolve<IUIWindowsRegister>().Register(typeof(TWidget), path, isFullscreen, provider);
-
-        private class WindowsProvider : IUIWindowsProvider, IUIWindowsRegister
-        {
-            private readonly List<UIWindowMap> _list = new();
-
-            public IEnumerable<UIWindowMap> Provide() => _list;
-
-            public void Register(Type type, string path, bool isFullscreen, IUIComponentProvider provider) =>
-                _list.Add(new UIWindowMap(type, path, isFullscreen, provider));
-        }
     }
 }

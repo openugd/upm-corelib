@@ -1,15 +1,14 @@
 ﻿using System;
-using System.Collections.Generic;
 
 namespace OpenUGD.Services.UI.Windows
 {
     public interface IUIWindowsProvider
     {
-        IEnumerable<UIWindowMap> Provide();
+        UIWindowFactoryInfo Get(Type type);
     }
 
     public interface IUIWindowsRegister
     {
-        void Register(Type type, string path, bool isFullscreen, IUIComponentProvider provider);
+        void AddWindow(Lifetime lifetime, Type type, Action<WindowOptions> options);
     }
 }

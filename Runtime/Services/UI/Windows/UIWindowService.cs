@@ -6,24 +6,33 @@ using System.Linq;
 using System.Threading.Tasks;
 using OpenUGD.Core.Widgets;
 using OpenUGD.Utils.Components;
-using UnityEngine.Assertions;
+using Assert = UnityEngine.Assertions.Assert;
 
 namespace OpenUGD.Services.UI.Windows
 {
-    public class UIWindowService : Service, IUIWindowService
+    public class UIWindowService : Service, IUIWindowService, IUIWindowsProvider, IUIWindowsRegister
     {
-        private readonly Dictionary<Type, UIWindowMap> _map = new();
+        private readonly Dictionary<Type, UIWindowFactoryInfo> _maps = new();
         private readonly List<UIWindowContext> _opened = new();
         private readonly LinkedList<UIWindowContext> _queue = new();
 
-        [Inject] private IInjector _injector;
-        private Signal _onChanged;
-        private Signal<Type, UIWindowActionKind> _onChangedEx;
-        [Inject] private IUIWindowsProvider _windowsProvider;
+        private Signal<Type, UIWindowActionKind> _onChanged;
 
-        public UIWindowReference[] Queue => _queue.Select(w => w.Reference).ToArray();
+        [Inject] private IUIWindowsProvider _provider;
 
-        public UIWindowReference[] Opened => _opened.Select(w => w.Reference).ToArray();
+
+        public IEnumerable<UIWindowReference> Queue => _queue.Select(w => w.Reference);
+        public IEnumerable<UIWindowReference> Opened => _opened.Select(w => w.Reference);
+
+        UIWindowFactoryInfo IUIWindowsProvider.Get(Type type) => _maps[type];
+
+        void IUIWindowsRegister.AddWindow(Lifetime lifetime, Type type, Action<WindowOptions> options)
+        {
+            var option = new WindowOptions();
+            var factoryInfo = new UIWindowFactoryInfo(type, option, options);
+            _maps[type] = factoryInfo;
+            lifetime.AddAction(() => _maps.Remove(type));
+        }
 
         public UIWindowReference Open(Type type, Action<Widget> onOpen, object model)
         {
@@ -32,101 +41,93 @@ namespace OpenUGD.Services.UI.Windows
                 throw new ArgumentException($"{nameof(type)} is not subclass of {typeof(Widget)}");
             }
 
+            var factoryInfo = _provider.Get(type);
+            if (factoryInfo == null)
+            {
+                throw new ArgumentException($"No window factory registered for {type}");
+            }
+
             var definition = Lifetime.Define(Lifetime);
-            var reference = new UIWindowReference(definition, _map[type].IsFullscreen, type, model);
+            var reference = new UIWindowReference(definition, factoryInfo.Options, type, model);
             var context = new UIWindowContext(reference, definition);
             Enqueue(type, onOpen, context, model);
             return reference;
         }
 
-        public void SubscribeOnChanged(Lifetime lifetime, Action listener) =>
-            _onChanged.Subscribe(lifetime, listener);
-
         public void SubscribeOnChanged(Lifetime lifetime, Action<Type, UIWindowActionKind> listener) =>
-            _onChangedEx.Subscribe(lifetime, listener);
+            _onChanged.Subscribe(lifetime, listener);
 
         protected override Task OnAwake()
         {
-            _onChanged = new Signal(Lifetime);
-            _onChangedEx = new Signal<Type, UIWindowActionKind>(Lifetime);
+            _onChanged = new Signal<Type, UIWindowActionKind>(Lifetime);
             return base.OnAwake();
-        }
-
-        protected override Task OnInitialize()
-        {
-            foreach (var windowMap in _windowsProvider.Provide())
-            {
-                _map[windowMap.Type] = windowMap;
-                _injector.ToFactory(windowMap.Type);
-            }
-
-            return base.OnInitialize();
         }
 
         private void Enqueue(Type type, Action<Widget> onOpen, UIWindowContext context, object model)
         {
             var definition = context.Definition;
             context.Factory = callback => {
-                var map = _map[type];
-                _injector.Inject(map.Provider);
-                var mediator = (Widget)_injector.Resolve(type);
+                var factoryInfo = _provider.Get(type);
+                var injector = factoryInfo.Options.Injector;
+                var provider = factoryInfo.Options.Provider();
+                injector.Inject(provider);
+                var mediator = (Widget)injector.Resolve(type);
                 var viewType = mediator.GetViewType();
-                map.Provider.Provide(definition.Lifetime, map.Path, viewType, providerContext => {
-                    var view = providerContext.Component;
+                provider.Provide(definition.Lifetime, factoryInfo.Options, viewType,
+                    providerContext => {
+                        var view = providerContext.Component;
 
-                    var signal = view.gameObject.GetComponent<SignalMonoBehaviour>();
-                    if (ReferenceEquals(signal, null) || signal == null)
-                    {
-                        signal = view.gameObject.AddComponent<SignalMonoBehaviour>();
-                    }
-
-                    signal.DestroySignal.Subscribe(definition.Lifetime, definition.Terminate);
-
-                    definition.Lifetime.AddAction(() => {
-                        //Widget.Internal.Close(mediator);
-                        _opened.Remove(context);
-                        providerContext.Terminate();
-                        _onChangedEx.Fire(type, UIWindowActionKind.WindowClosed);
-                        _onChanged.Fire();
-                    });
-
-                    _opened.Add(context);
-
-                    Widget.Internal.Initialize(_injector, mediator, definition);
-
-                    if (!definition.IsTerminated)
-                    {
-                        var mediatorModel = mediator as IWidgetWithModel;
-                        if (model != null)
+                        var signal = view.gameObject.GetComponent<SignalMonoBehaviour>();
+                        if (ReferenceEquals(signal, null) || signal == null)
                         {
-                            Assert.IsNotNull(mediatorModel);
-                            mediatorModel.SetModel(model);
+                            signal = view.gameObject.AddComponent<SignalMonoBehaviour>();
                         }
+
+                        signal.DestroySignal.Subscribe(definition.Lifetime, definition.Terminate);
+
+                        definition.Lifetime.AddAction(() => {
+                            //Widget.Internal.Close(mediator);
+                            _opened.Remove(context);
+                            providerContext.Dispose();
+                            _onChanged.Fire(type, UIWindowActionKind.WindowClosed);
+                        });
+
+                        _opened.Add(context);
+
+                        Widget.Internal.Initialize(injector, mediator, definition);
 
                         if (!definition.IsTerminated)
                         {
-                            var mediatorView = (IWidgetWithView)mediator;
-                            var viewComponent = view.GetType() != mediatorView.ViewType
-                                ? view.GetComponent(mediatorView.ViewType)
-                                : view;
-                            mediatorView.SetView(viewComponent);
+                            var mediatorModel = mediator as IWidgetWithModel;
+                            if (model != null)
+                            {
+                                Assert.IsNotNull(mediatorModel);
+                                mediatorModel.SetModel(model);
+                            }
 
-                            Widget.Internal.Ready(mediator);
                             if (!definition.IsTerminated)
                             {
-                                if (onOpen != null)
+                                var mediatorView = (IWidgetWithView)mediator;
+                                var viewComponent = view.GetType() != mediatorView.ViewType
+                                    ? view.GetComponent(mediatorView.ViewType)
+                                    : view;
+                                mediatorView.SetView(viewComponent);
+
+                                Widget.Internal.Ready(mediator);
+                                if (!definition.IsTerminated)
                                 {
-                                    onOpen(mediator);
+                                    if (onOpen != null)
+                                    {
+                                        onOpen(mediator);
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    callback();
+                        callback();
 
-                    _onChangedEx.Fire(type, UIWindowActionKind.WindowOpened);
-                    _onChanged.Fire();
-                });
+                        _onChanged.Fire(type, UIWindowActionKind.WindowOpened);
+                    });
             };
 
             _queue.AddLast(context);

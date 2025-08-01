@@ -14,9 +14,11 @@ namespace OpenUGD.Services.UI.Hud
         private readonly Dictionary<Type, UIHudMap> _map = new();
         private readonly List<Widget> _opened = new();
         private readonly LinkedList<Action<Action>> _queue = new();
-        [Inject] private IInjector _injector;
+
         private bool _inOpenProcess;
         private Signal _onChange;
+
+        [Inject] private IInjector _injector;
         [Inject] private PrefabResourceManager _prefabResourceManager;
         [Inject] private IUIHudProvider _providers;
 
@@ -119,54 +121,55 @@ namespace OpenUGD.Services.UI.Hud
                     _injector.Inject(map.Provider);
                     var mediator = (Widget)_injector.Resolve(type);
                     var viewType = mediator.GetViewType();
-                    map.Provider.Provide(definition.Lifetime, map.Path, viewType, providerContext => {
-                        var view = providerContext.Component;
-                        view.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
-                            .Subscribe(definition.Lifetime, definition.Terminate);
+                    map.Provider.Provide(definition.Lifetime, new Options { Path = map.Path }, viewType,
+                        providerContext => {
+                            var view = providerContext.Component;
+                            view.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
+                                .Subscribe(definition.Lifetime, definition.Terminate);
 
-                        definition.Lifetime.AddAction(() => {
-                            //Widget.Internal.Close(mediator);
-                            _opened.Remove(mediator);
-                            providerContext.Terminate();
-                            _onChange.Fire();
-                        });
+                            definition.Lifetime.AddAction(() => {
+                                //Widget.Internal.Close(mediator);
+                                _opened.Remove(mediator);
+                                providerContext.Dispose();
+                                _onChange.Fire();
+                            });
 
-                        _opened.Add(mediator);
+                            _opened.Add(mediator);
 
-                        Widget.Internal.Initialize(_injector, mediator, definition);
-
-                        if (!definition.IsTerminated)
-                        {
-                            var modelMediator = mediator as IWidgetWithModel;
-                            if (model != null)
-                            {
-                                Assert.IsNotNull(modelMediator);
-                                modelMediator.SetModel(model);
-                            }
+                            Widget.Internal.Initialize(_injector, mediator, definition);
 
                             if (!definition.IsTerminated)
                             {
-                                var viewMediator = (IWidgetWithView)mediator;
-                                var viewComponent = view.GetType() != viewMediator.ViewType
-                                    ? view.GetComponent(viewMediator.ViewType)
-                                    : view;
-                                viewMediator.SetView(viewComponent);
+                                var modelMediator = mediator as IWidgetWithModel;
+                                if (model != null)
+                                {
+                                    Assert.IsNotNull(modelMediator);
+                                    modelMediator.SetModel(model);
+                                }
+
                                 if (!definition.IsTerminated)
                                 {
-                                    Widget.Internal.Ready(mediator);
-
-                                    if (onOpen != null)
+                                    var viewMediator = (IWidgetWithView)mediator;
+                                    var viewComponent = view.GetType() != viewMediator.ViewType
+                                        ? view.GetComponent(viewMediator.ViewType)
+                                        : view;
+                                    viewMediator.SetView(viewComponent);
+                                    if (!definition.IsTerminated)
                                     {
-                                        onOpen(mediator);
+                                        Widget.Internal.Ready(mediator);
+
+                                        if (onOpen != null)
+                                        {
+                                            onOpen(mediator);
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        callback();
+                            callback();
 
-                        _onChange.Fire();
-                    });
+                            _onChange.Fire();
+                        });
                 }
             };
 

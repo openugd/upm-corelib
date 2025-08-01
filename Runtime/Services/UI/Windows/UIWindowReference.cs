@@ -6,17 +6,21 @@ namespace OpenUGD.Services.UI.Windows
     {
         private readonly Lifetime.Definition _definition;
 
-        public UIWindowReference(Lifetime.Definition definition, bool isFullscreen, Type type, object model)
+        public UIWindowReference(
+            Lifetime.Definition definition,
+            WindowOptions options,
+            Type type,
+            object model
+        )
         {
             _definition = definition;
-            IsFullscreen = isFullscreen;
+            Options = options;
             Type = type;
             Model = model;
         }
 
         public Lifetime Lifetime => _definition.Lifetime;
-
-        public bool IsFullscreen { get; private set; }
+        public WindowOptions Options { get; private set; }
         public Type Type { get; private set; }
         public object Model { get; private set; }
 

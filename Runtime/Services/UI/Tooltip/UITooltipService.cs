@@ -86,40 +86,41 @@ namespace OpenUGD.Services.UI.Tooltip
                     _injector.Inject(map.Provider);
                     var mediator = (Widget)_injector.Resolve(type);
                     var viewType = mediator.GetViewType();
-                    map.Provider.Provide(intersectLifetime.Lifetime, map.Path, viewType, context => {
-                        var tooltipComponent = context.Component;
-                        tooltipComponent.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
-                            .Subscribe(intersectLifetime.Lifetime, intersectLifetime.Terminate);
-                        Widget.Internal.Initialize(_injector, mediator, intersectLifetime);
-                        _opened.Add(mediator);
-                        var modelMediator = mediator as IWidgetWithModel;
-                        if (model != null)
-                        {
-                            Assert.IsNotNull(modelMediator);
-                            modelMediator.SetModel(model);
-                        }
+                    map.Provider.Provide(intersectLifetime.Lifetime, new Options { Path = map.Path }, viewType,
+                        context => {
+                            var tooltipComponent = context.Component;
+                            tooltipComponent.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
+                                .Subscribe(intersectLifetime.Lifetime, intersectLifetime.Terminate);
+                            Widget.Internal.Initialize(_injector, mediator, intersectLifetime);
+                            _opened.Add(mediator);
+                            var modelMediator = mediator as IWidgetWithModel;
+                            if (model != null)
+                            {
+                                Assert.IsNotNull(modelMediator);
+                                modelMediator.SetModel(model);
+                            }
 
-                        var viewMediator = (IWidgetWithView)mediator;
-                        var viewComponent = tooltipComponent.GetType() != viewMediator.ViewType
-                            ? tooltipComponent.GetComponent(viewMediator.ViewType)
-                            : tooltipComponent;
-                        viewMediator.SetView(viewComponent);
+                            var viewMediator = (IWidgetWithView)mediator;
+                            var viewComponent = tooltipComponent.GetType() != viewMediator.ViewType
+                                ? tooltipComponent.GetComponent(viewMediator.ViewType)
+                                : tooltipComponent;
+                            viewMediator.SetView(viewComponent);
 
-                        Widget.Internal.Ready(mediator);
-                        if (onOpen != null)
-                        {
-                            onOpen(mediator);
-                        }
+                            Widget.Internal.Ready(mediator);
+                            if (onOpen != null)
+                            {
+                                onOpen(mediator);
+                            }
 
-                        callback();
-                        _onChange.Fire();
-                        intersectLifetime.Lifetime.AddAction(() => {
-                            //Widget.Internal.Close(mediator);
-                            _opened.Remove(mediator);
-                            context.Terminate();
+                            callback();
                             _onChange.Fire();
+                            intersectLifetime.Lifetime.AddAction(() => {
+                                //Widget.Internal.Close(mediator);
+                                _opened.Remove(mediator);
+                                context.Dispose();
+                                _onChange.Fire();
+                            });
                         });
-                    });
                 }
             };
 
