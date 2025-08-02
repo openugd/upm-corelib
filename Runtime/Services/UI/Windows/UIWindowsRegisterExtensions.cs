@@ -12,12 +12,16 @@ namespace OpenUGD.Services.UI.Windows
             Type type,
             string path,
             bool isFullscreen,
-            IUIComponentProvider provider
+            IUIComponentProvider provider,
+            Lifetime lifetime
         ) =>
-            register.AddWindow(((Service)register).Lifetime, type, options => options
-                .SetFullscreen(isFullscreen)
-                .SetPath(path)
-                .SetProvider(() => provider)
+            register.AddWindow(
+                lifetime: lifetime,
+                type: type,
+                options: options => options
+                    .SetFullscreen(isFullscreen)
+                    .SetPath(path)
+                    .SetProvider(() => provider)
             );
     }
 }

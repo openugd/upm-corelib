@@ -29,6 +29,6 @@ namespace OpenUGD.Services.UI.Windows
         public static void RegisterWindow<TWidget>(this IUIContextServiceSetup setup, string path, bool isFullscreen,
             IUIComponentProvider provider = null)
             where TWidget : Widget =>
-            setup.Resolve<IUIWindowsRegister>().Register(typeof(TWidget), path, isFullscreen, provider);
+            setup.Resolve<IUIWindowsRegister>().Register(typeof(TWidget), path, isFullscreen, provider, setup.Lifetime);
     }
 }
