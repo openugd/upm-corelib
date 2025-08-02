@@ -15,6 +15,7 @@ namespace OpenUGD.Services.UI.Windows
                 {
                     _optionsResolved = true;
                     _setupOptions(_options);
+                    _options.Injector.ToFactory(Type);
                 }
 
                 return _options;
