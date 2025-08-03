@@ -1,3 +1,4 @@
+using System;
 using OpenUGD.Core.ContextBuilder;
 using OpenUGD.Core.Loggers;
 
@@ -5,22 +6,35 @@ namespace OpenUGD.Services.UI
 {
     public interface IUIContextServiceSetup : IContextServiceSetup
     {
-        public static IUIContextServiceBuilder Default(Logger logger, Lifetime lifetime, IInjector injector) =>
-            new UIContextServiceBuilder(logger, lifetime, injector);
-
-        public static IUIContextServiceBuilder Default(Logger logger, Lifetime lifetime, IInjector injector,
-            IServicesObserverRegister observerRegister) =>
-            new UIContextServiceBuilder(logger, lifetime, injector, observerRegister);
+        static IUIContextServiceBuilder Default(
+            Logger logger,
+            Lifetime lifetime,
+            IInjector injector,
+            IServicesObserverRegister observerRegister = null,
+            Action<ContextServiceBuilderOptions> options = null
+        ) =>
+            new UIContextServiceBuilder(
+                logger,
+                lifetime,
+                injector,
+                observerRegister,
+                options
+            );
 
         private class UIContextServiceBuilder : ContextServiceBuilder, IUIContextServiceBuilder
         {
             public UIContextServiceBuilder(
                 Logger logger,
                 Lifetime lifetime,
-                IInjector injector
-            ) : base(logger,
-                lifetime,
-                injector)
+                IInjector injector,
+                Action<ContextServiceBuilderOptions> options = null
+            ) : base(
+                logger: logger,
+                lifetime: lifetime,
+                injector: injector,
+                observer: null,
+                options: options
+            )
             {
             }
 
@@ -28,8 +42,15 @@ namespace OpenUGD.Services.UI
                 Logger logger,
                 Lifetime lifetime,
                 IInjector injector,
-                IServicesObserverRegister observerRegister
-            ) : base(logger, lifetime, injector, observerRegister)
+                IServicesObserverRegister observerRegister,
+                Action<ContextServiceBuilderOptions> options = null
+            ) : base(
+                logger: logger,
+                lifetime: lifetime,
+                injector: injector,
+                observer: observerRegister,
+                options: options
+            )
             {
             }
         }
@@ -37,5 +58,12 @@ namespace OpenUGD.Services.UI
 
     public interface IUIContextServiceBuilder : IUIContextServiceSetup, IContextServiceBuilder
     {
+        static IUIContextServiceBuilder Default(
+            Logger logger,
+            Lifetime lifetime,
+            IInjector injector,
+            IServicesObserverRegister observerRegister = null,
+            Action<ContextServiceBuilderOptions> options = null
+        ) => IUIContextServiceSetup.Default(logger, lifetime, injector, observerRegister, options);
     }
 }

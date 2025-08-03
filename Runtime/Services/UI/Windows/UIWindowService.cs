@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using OpenUGD.Core.Widgets;
@@ -13,16 +14,16 @@ namespace OpenUGD.Services.UI.Windows
     public class UIWindowService : Service, IUIWindowService, IUIWindowsProvider, IUIWindowsRegister
     {
         private readonly Dictionary<Type, UIWindowFactoryInfo> _maps = new();
-        private readonly List<UIWindowContext> _opened = new();
-        private readonly LinkedList<UIWindowContext> _queue = new();
+        private readonly List<UIWindowReference> _opened = new();
+        private readonly LinkedList<UIWindowReference> _queue = new();
+        private ReadOnlyCollection<UIWindowReference> _openedReadOnly;
 
-        private Signal<Type, UIWindowActionKind> _onChanged;
+        private Signal<Type, UIWindowActionType> _onChanged;
 
         [Inject] private IUIWindowsProvider _provider;
 
-
-        public IEnumerable<UIWindowReference> Queue => _queue.Select(w => w.Reference);
-        public IEnumerable<UIWindowReference> Opened => _opened.Select(w => w.Reference);
+        public IEnumerable<UIWindowReference> Queue => _queue;
+        public ReadOnlyCollection<UIWindowReference> Opened => _openedReadOnly ?? (_openedReadOnly = _opened.AsReadOnly());
 
         UIWindowFactoryInfo IUIWindowsProvider.Get(Type type) => _maps[type];
 
@@ -54,12 +55,12 @@ namespace OpenUGD.Services.UI.Windows
             return reference;
         }
 
-        public void SubscribeOnChanged(Lifetime lifetime, Action<Type, UIWindowActionKind> listener) =>
+        public void Subscribe(Lifetime lifetime, Action<Type, UIWindowActionType> listener) =>
             _onChanged.Subscribe(lifetime, listener);
 
         protected override Task OnAwake()
         {
-            _onChanged = new Signal<Type, UIWindowActionKind>(Lifetime);
+            _onChanged = new Signal<Type, UIWindowActionType>(Lifetime);
             return base.OnAwake();
         }
 
@@ -71,8 +72,8 @@ namespace OpenUGD.Services.UI.Windows
                 var injector = factoryInfo.Options.Injector;
                 var provider = factoryInfo.Options.Provider();
                 injector.Inject(provider);
-                var mediator = (Widget)injector.Resolve(type);
-                var viewType = mediator.GetViewType();
+                var widget = (Widget)injector.Resolve(type);
+                var viewType = widget.GetViewType();
                 provider.Provide(definition.Lifetime, factoryInfo.Options, viewType,
                     providerContext => {
                         var view = providerContext.Component;
@@ -87,18 +88,20 @@ namespace OpenUGD.Services.UI.Windows
 
                         definition.Lifetime.AddAction(() => {
                             //Widget.Internal.Close(mediator);
-                            _opened.Remove(context);
+                            _opened.Remove(context.Reference);
                             providerContext.Dispose();
-                            _onChanged.Fire(type, UIWindowActionKind.WindowClosed);
+                            _onChanged.Fire(type, UIWindowActionType.Closed);
+                            context.Reference.Widget = null;
                         });
 
-                        _opened.Add(context);
+                        _opened.Add(context.Reference);
+                        context.Reference.Widget = widget;
 
-                        Widget.Internal.Initialize(injector, mediator, definition);
+                        Widget.Internal.Initialize(injector, widget, definition);
 
                         if (!definition.IsTerminated)
                         {
-                            var mediatorModel = mediator as IWidgetWithModel;
+                            var mediatorModel = widget as IWidgetWithModel;
                             if (model != null)
                             {
                                 Assert.IsNotNull(mediatorModel);
@@ -107,31 +110,30 @@ namespace OpenUGD.Services.UI.Windows
 
                             if (!definition.IsTerminated)
                             {
-                                var mediatorView = (IWidgetWithView)mediator;
+                                var mediatorView = (IWidgetWithView)widget;
                                 var viewComponent = view.GetType() != mediatorView.ViewType
                                     ? view.GetComponent(mediatorView.ViewType)
                                     : view;
                                 mediatorView.SetView(viewComponent);
 
-                                Widget.Internal.Ready(mediator);
+                                Widget.Internal.Ready(widget);
                                 if (!definition.IsTerminated)
                                 {
                                     if (onOpen != null)
                                     {
-                                        onOpen(mediator);
+                                        onOpen(widget);
                                     }
                                 }
                             }
                         }
+                        _onChanged.Fire(type, UIWindowActionType.Opened);
 
                         callback();
-
-                        _onChanged.Fire(type, UIWindowActionKind.WindowOpened);
                     });
             };
-
-            _queue.AddLast(context);
-            definition.Lifetime.AddAction(() => { _queue.Remove(context); });
+            
+            _queue.AddLast(context.Reference);
+            definition.Lifetime.AddAction(() => { _queue.Remove(context.Reference); });
             context.Factory(() => { });
         }
 

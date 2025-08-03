@@ -5,11 +5,11 @@ namespace OpenUGD.Services.UI.Hud
 {
     public interface IUIHudProvider
     {
-        IEnumerable<UIHudMap> Provide();
+        UIHudFactoryInfo Get(Type type);
     }
 
     public interface IUIHudRegister
     {
-        void Register(Type type, string path, IUIComponentProvider provider);
+        void AddHud(Lifetime lifetime, Type type, Action<HudOptions> options);
     }
 }

@@ -1,4 +1,5 @@
 ﻿using System;
+using OpenUGD.Core.Widgets;
 
 namespace OpenUGD.Services.UI.Windows
 {
@@ -23,6 +24,7 @@ namespace OpenUGD.Services.UI.Windows
         public WindowOptions Options { get; private set; }
         public Type Type { get; private set; }
         public object Model { get; private set; }
+        public Widget Widget { get; internal set; }
 
         public void Close() => _definition.Terminate();
     }

@@ -1,180 +1,136 @@
 ﻿#pragma warning disable CS0649
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using OpenUGD.Core.Widgets;
-using OpenUGD.Utils;
 using OpenUGD.Utils.Components;
 using UnityEngine.Assertions;
 
 namespace OpenUGD.Services.UI.Hud
 {
-    public class UIHudService : Service
+    public class UIHudService : Service, IHudService, IUIHudProvider, IUIHudRegister
     {
-        private readonly Dictionary<Type, UIHudMap> _map = new();
-        private readonly List<Widget> _opened = new();
+        private readonly Dictionary<Type, UIHudFactoryInfo> _map = new();
+        private readonly List<UIHudReference> _opened = new();
         private readonly LinkedList<Action<Action>> _queue = new();
+        private ReadOnlyCollection<UIHudReference> _openedReadOnly;
 
         private bool _inOpenProcess;
-        private Signal _onChange;
+        private Signal<Type, UIHudActionType> _onChange;
 
-        [Inject] private IInjector _injector;
-        [Inject] private PrefabResourceManager _prefabResourceManager;
-        [Inject] private IUIHudProvider _providers;
+        [Inject] private IUIHudProvider _provider;
 
-        public Widget[] Opened => _opened.ToArray();
+        public ReadOnlyCollection<UIHudReference> Opened
+            => _openedReadOnly ?? (_openedReadOnly = _opened.AsReadOnly());
 
-        public UIHudReference Open<TWidget>(Action<TWidget> onOpen = null) where TWidget : Widget
+        UIHudFactoryInfo IUIHudProvider.Get(Type type) => _map[type];
+
+        void IUIHudRegister.AddHud(Lifetime lifetime, Type type, Action<HudOptions> options)
         {
-            var definition = Lifetime.Define(Lifetime);
-            var shell = new UIHudReference(definition);
-            Enqueue(typeof(TWidget), widget => onOpen?.Invoke((TWidget)widget), definition, null);
-            return shell;
+            var option = new HudOptions();
+            var factoryInfo = new UIHudFactoryInfo(type, option, options);
+            _map[type] = factoryInfo;
+            lifetime.AddAction(() => _map.Remove(type));
         }
 
-        public UIHudReference Open<TWidget, TModel>(TModel model, Action<TWidget> onOpen = null)
-            where TWidget : Widget, IWidgetWithModel<TModel>
-            where TModel : class
-        {
-            var definition = Lifetime.Define(Lifetime);
-            var shell = new UIHudReference(definition);
-            Enqueue(typeof(TWidget), widget => onOpen?.Invoke((TWidget)widget), definition, model);
-            return shell;
-        }
-
-        public UIHudReference Open(Type type, Action<Widget> onOpen = null)
+        public UIHudReference Open(Type type, object model = null, Action<Widget> onOpen = null)
         {
             Assert.IsTrue(type.IsSubclassOf(typeof(Widget)));
 
             var definition = Lifetime.Define(Lifetime);
-            var shell = new UIHudReference(definition);
-            Enqueue(type, onOpen, definition, null);
-            return shell;
+            var reference = new UIHudReference(definition);
+            Enqueue(type, onOpen, definition, model, reference);
+            return reference;
         }
+        
+        public T Find<T>() where T : Widget
+            => _opened.Find(t => t.Widget is T)?.Widget as T;
 
-        public T Get<T>() where T : Widget => (T)_opened.Find(t => t is T);
-
-        public void SubscribeOnChange(Lifetime lifetime, Action listener) =>
+        public void Subscribe(Lifetime lifetime, Action<Type, UIHudActionType> listener) =>
             _onChange.Subscribe(lifetime, listener);
 
         protected override Task OnAwake()
         {
-            _onChange = new Signal(Lifetime);
+            _onChange = new Signal<Type, UIHudActionType>(Lifetime);
             return base.OnAwake();
         }
 
-        protected override Task OnInitialize()
+        private void Enqueue(Type type,
+            Action<Widget> onOpen,
+            Lifetime.Definition definition,
+            object model,
+            UIHudReference reference
+        )
         {
-            foreach (var map in _providers.Provide())
+            Action<Action> action = callback =>
             {
-                _map[map.Type] = map;
-                _injector.ToFactory(map.Type);
-            }
-
-            return base.OnInitialize();
-        }
-
-        private void Enqueue(Type type, Action<Widget> onOpen, Lifetime.Definition definition, object model)
-        {
-            Action<Action> action = callback => {
-                var map = _map[type];
-                if (map == null)
-                {
-                    var mediator = (Widget)_injector.Resolve(type);
-                    _injector.Inject(mediator);
-
-                    definition.Lifetime.AddAction(() => {
-                        //Widget.Internal.Close(mediator);
-                        _opened.Remove(mediator);
-                        _onChange.Fire();
-                    });
-
-                    _opened.Add(mediator);
-
-                    Widget.Internal.Initialize(_injector, mediator, definition);
-
-                    if (!definition.IsTerminated)
+                var factoryInfo = _provider.Get(type);
+                var injector = factoryInfo.Options.Injector;
+                var provider = factoryInfo.Options.Provider();
+                injector.Inject(provider);
+                var widget = (Widget)injector.Resolve(type);
+                var viewType = widget.GetViewType();
+                provider.Provide(
+                    lifetime: definition.Lifetime,
+                    options: factoryInfo.Options,
+                    targetType: viewType,
+                    onResult: providerContext =>
                     {
-                        var modelMediator = mediator as IWidgetWithModel;
-                        if (model != null)
+                        var view = providerContext.Component;
+                        view.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
+                            .Subscribe(definition.Lifetime, definition.Terminate);
+
+                        definition.Lifetime.AddAction(() =>
                         {
-                            Assert.IsNotNull(modelMediator);
-                            modelMediator.SetModel(model);
-                        }
+                            _opened.Remove(reference);
+                            providerContext.Dispose();
+                            _onChange.Fire(type, UIHudActionType.Closed);
+                            reference.Widget = null;
+                        });
+
+                        _opened.Add(reference);
+                        reference.Widget = widget;
+
+                        Widget.Internal.Initialize(injector, widget, definition);
 
                         if (!definition.IsTerminated)
                         {
-                            Widget.Internal.Ready(mediator);
-
-                            if (onOpen != null)
+                            var modelMediator = widget as IWidgetWithModel;
+                            if (model != null)
                             {
-                                onOpen(mediator);
+                                Assert.IsNotNull(modelMediator);
+                                modelMediator.SetModel(model);
                             }
-                        }
-                    }
-
-                    callback();
-                    _onChange.Fire();
-                }
-                else
-                {
-                    _injector.Inject(map.Provider);
-                    var mediator = (Widget)_injector.Resolve(type);
-                    var viewType = mediator.GetViewType();
-                    map.Provider.Provide(definition.Lifetime, new Options { Path = map.Path }, viewType,
-                        providerContext => {
-                            var view = providerContext.Component;
-                            view.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
-                                .Subscribe(definition.Lifetime, definition.Terminate);
-
-                            definition.Lifetime.AddAction(() => {
-                                //Widget.Internal.Close(mediator);
-                                _opened.Remove(mediator);
-                                providerContext.Dispose();
-                                _onChange.Fire();
-                            });
-
-                            _opened.Add(mediator);
-
-                            Widget.Internal.Initialize(_injector, mediator, definition);
 
                             if (!definition.IsTerminated)
                             {
-                                var modelMediator = mediator as IWidgetWithModel;
-                                if (model != null)
-                                {
-                                    Assert.IsNotNull(modelMediator);
-                                    modelMediator.SetModel(model);
-                                }
-
+                                var viewMediator = (IWidgetWithView)widget;
+                                var viewComponent = view.GetType() != viewMediator.ViewType
+                                    ? view.GetComponent(viewMediator.ViewType)
+                                    : view;
+                                viewMediator.SetView(viewComponent);
                                 if (!definition.IsTerminated)
                                 {
-                                    var viewMediator = (IWidgetWithView)mediator;
-                                    var viewComponent = view.GetType() != viewMediator.ViewType
-                                        ? view.GetComponent(viewMediator.ViewType)
-                                        : view;
-                                    viewMediator.SetView(viewComponent);
-                                    if (!definition.IsTerminated)
-                                    {
-                                        Widget.Internal.Ready(mediator);
+                                    Widget.Internal.Ready(widget);
 
-                                        if (onOpen != null)
-                                        {
-                                            onOpen(mediator);
-                                        }
+                                    if (onOpen != null)
+                                    {
+                                        onOpen(widget);
                                     }
                                 }
                             }
+                        }
 
-                            callback();
-
-                            _onChange.Fire();
-                        });
-                }
+                        _onChange.Fire(type, UIHudActionType.Opened);
+                        
+                        callback();
+                    });
             };
 
             _queue.AddLast(action);
-            definition.Lifetime.AddAction(() => {
+            definition.Lifetime.AddAction(() =>
+            {
                 _queue.Remove(action);
                 if (_queue.Count == 0)
                 {
@@ -196,7 +152,8 @@ namespace OpenUGD.Services.UI.Hud
             {
                 var first = _queue.First.Value;
                 _queue.RemoveFirst();
-                first(() => {
+                first(() =>
+                {
                     if (_queue.Count != 0)
                     {
                         OpenProcess();

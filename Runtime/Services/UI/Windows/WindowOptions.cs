@@ -6,14 +6,14 @@ namespace OpenUGD.Services.UI.Windows
 {
     public class WindowOptions : Options
     {
-        private static readonly Func<IUIComponentProvider> _defaultProvider = () => new UIWindowComponentProvider();
+        private static readonly Func<IUIComponentProvider> DefaultProvider = () => new UIWindowComponentProvider();
 
         public static class OptionsKeys
         {
             public const string Fullscreen = nameof(Fullscreen);
         }
 
-        public WindowOptions() => SetProvider(_defaultProvider);
+        public WindowOptions() => SetProvider(DefaultProvider);
 
         public bool Fullscreen {
             get {
@@ -30,10 +30,10 @@ namespace OpenUGD.Services.UI.Windows
             return this;
         }
 
-        public WindowOptions LoadFromResources() => SetProvider(_defaultProvider);
+        public WindowOptions LoadFromResources() => SetProvider(DefaultProvider);
 
         public WindowOptions LoadFromResources(string path)
-            => SetPath(path).SetProvider(_defaultProvider);
+            => SetPath(path).SetProvider(DefaultProvider);
 
         public new WindowOptions SetPath(string path)
             => (WindowOptions)base.SetPath(path);

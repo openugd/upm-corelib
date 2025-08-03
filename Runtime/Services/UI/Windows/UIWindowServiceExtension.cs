@@ -14,7 +14,7 @@ namespace OpenUGD.Services.UI.Windows
         }
 
         public static void SubscribeOnChanged(this IUIWindowService service, Lifetime lifetime, Action listener)
-            => service.SubscribeOnChanged(lifetime, (type, kind) => listener());
+            => service.Subscribe(lifetime, (type, kind) => listener());
 
         public static UIWindowReference Open<TWidget>(this IUIWindowService service)
             where TWidget : Widget =>
