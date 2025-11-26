@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using OpenUGD.Core.Widgets;
 
 namespace OpenUGD.Services.UI.Windows
@@ -7,7 +8,7 @@ namespace OpenUGD.Services.UI.Windows
     {
         public static void CloseAll(this IUIWindowService service)
         {
-            foreach (var reference in service.Opened)
+            foreach (var reference in service.Opened.ToArray())
             {
                 reference.Close();
             }
