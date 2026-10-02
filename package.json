@@ -34,8 +34,7 @@
   "dependencies": {
     "com.openugd.lifetime": "2.0.0",
     "com.openugd.signal": "2.0.0",
-    "com.openugd.context": "2.0.0",
-    "com.unity.ugui": "2.0.0"
+    "com.openugd.context": "2.0.0"
   },
   "samples": [
     {

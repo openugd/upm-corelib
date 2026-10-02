@@ -180,8 +180,8 @@ Import them from the Package Manager window: select CoreLib, then the Samples ta
 ## Requirements
 
 - Unity 6000.0 or newer
-- `com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context` 2.0.0, and `com.unity.ugui`
-  2.0.0 (built into Unity 6000.0) — all declared in `package.json`
+- `com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context` 2.0.0, declared in `package.json`.
+  CoreLib does not use uGUI and does not depend on `com.unity.ugui`.
 
 ## Licence
 

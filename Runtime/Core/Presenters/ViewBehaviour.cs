@@ -13,7 +13,7 @@ namespace OpenUGD.Core.Presenters
     /// <para>
     /// <i>Changed in 2.0.0</i> - there is no <c>IWidgetView</c> interface any more. Requiring every view to
     /// implement one cut off every leaf presenter over a Unity component, because
-    /// <see cref="UnityEngine.UI.Button"/> cannot implement our interface. Liveness is a property of the
+    /// <c>UnityEngine.UI.Button</c> cannot implement our interface. Liveness is a property of the
     /// presenter's own scope, not of the view type.
     /// </para>
     /// </remarks>

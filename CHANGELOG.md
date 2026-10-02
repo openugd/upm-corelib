@@ -244,12 +244,15 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 - `SynchronizationContextWrapper` rejects a `null` context. `SynchronizationContext.Current` is `null`
   on any thread with no installed context; the null used to be stored and every later `Send`/`Post`
   threw `NullReferenceException` far from the cause.
-- `package.json`: version 2.0.0; dependencies are now `com.openugd.lifetime`, `com.openugd.signal`,
-  `com.openugd.context` and `com.unity.ugui` 2.0.0; `com.openugd.dependency.injection` removed;
-  description and keywords rewritten.
-- `com.unity.ugui` is now declared, at 2.0.0 — the version built into Unity 6000.0. Two files compile
-  against `UnityEngine.EventSystems` (`ContextInstanceComponent`, `IContextInstanceProvider`) and the
-  package declared it nowhere. A third, `IgnoreOnPointEnterInputModule`, was deleted.
+- `package.json`: version 2.0.0; dependencies are now `com.openugd.lifetime`, `com.openugd.signal` and
+  `com.openugd.context`; `com.openugd.dependency.injection` removed; description and keywords rewritten.
+- CoreLib no longer uses uGUI. In 0.6.1, `ContextInstanceComponent`, `IContextInstanceProvider`,
+  `UITooltipComponent`, `IUITooltip` and `IgnoreOnPointEnterInputModule` compiled against
+  `UnityEngine.EventSystems` without the package declaring `com.unity.ugui`. The first two are in the
+  *Multi Instance* sample now, the tooltip types left with the UI services, and the input module was
+  deleted, so nothing in the package references `UnityEngine.UI` or `UnityEngine.EventSystems` and
+  `package.json` does not declare `com.unity.ugui`. A project that uses uGUI itself, or through
+  `com.openugd.corelib.widgets`, still gets it from there.
 - **Licence changed from MIT to Apache-2.0.** The previous `LICENSE` was a mutated MIT whose copyright
   line had been deleted and whose attribution clause was replaced with the literal text "No
   conditions.", which left it legally ambiguous. It is now the verbatim Apache License 2.0 with an
