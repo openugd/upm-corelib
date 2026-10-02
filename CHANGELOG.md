@@ -12,12 +12,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 CoreLib is now the Unity boundary for `com.openugd.context` plus the utilities that go with it, and
 nothing else. The composition layer it used to own is gone: `com.openugd.context` 2.0.0 does that job,
-validates the whole graph before constructing anything, and is covered by 149 tests. Read this whole
+validates the whole graph before constructing anything, and has its own test suite. Read this whole
 section before upgrading — most of it is breaking, and every break is named so you can tell whether it
-reaches you. The headline break is the rename of `Widget` to `Presenter`; it is the first
-entry under *Changed*.
+reaches you. The two headline breaks are the UI services leaving corelib, the first entry under
+*Removed*, and the rename of `Widget` to `Presenter`, under *Changed*.
 
 ### Removed
+
+- **Breaking: the UI services are not in corelib 2.0.0.** `Runtime/Services/UI` is removed in full:
+  - the window service: `IUIWindowService`, `UIWindowService`, `IUIWindowsProvider`,
+    `IUIWindowsRegister`, `UIWindowComponentProvider`, `UIWindowReference`, `UIWindowFactoryInfo`,
+    `UIWindowActionType`, `WindowOptions`, `UIWindowServiceExtension`,
+    `UIWindowServiceInstallerExtension`, `UIWindowsRegisterExtensions`;
+  - the HUD service: `IHudService`, `UIHudService`, `IUIHudProvider`, `IUIHudRegister`,
+    `UIHudComponentProvider`, `UIHudReference`, `UIHudFactoryInfo`, `UIHudActionType`, `HudOptions`,
+    `UIHudServiceExtension`;
+  - the tooltip service: `IUITooltip`, `IUITooltipProvider`, `IUITooltipRegister`,
+    `UITooltipComponent`, `UITooltipComponentProvider`, `UITooltipMap`, `UITooltipPresenter`,
+    `UITooltipReference`, `UITooltipService`, `UITooltipServiceExtensions`;
+  - what the three shared: `Options`, `OptionsKeys`, `IUIComponentProvider`,
+    `UIComponentProviderContext`, `ITransformProvider`, `TransformProviderComponent`,
+    `TransformProviderExtensions`, `UILayer`, `UILayers`, `UILayerNotBoundException`;
+  - `PrefabResourceManager` with its nested `ResourceResult` and `ResourceLoadProgress`
+    (`OpenUGD.Utils`), whose only callers were the three component providers;
+  - `IUIContextServiceSetup` and `IUIContextServiceBuilder` from 0.6.1.
+
+  They are to be replaced by one presenter host with policies, in a separate package,
+  `com.openugd.corelib.ui`, released as a 2.x once it passes its acceptance test. Shipping the old
+  services in 2.0.0 would have meant carrying three copy-paste services through every 2.x next to their
+  replacement, because a type released in 2.0.0 can only be removed in 3.0. The code is kept exactly as
+  it was on the branch `park/ui-services` of this repository, as the starting point of that package. It
+  is not a drop-in: it registers through `BootPhase.Configure`, which `com.openugd.context` 2.0.0 does
+  not have. `TransformProviderComponent` is planned to move there with its `.meta` unchanged, so scene
+  references to it survive the move. Until that package ships, corelib 2.0.0 has no window, HUD or
+  tooltip service; a project that needs them now stays on 0.6.1. Their 24 tests are on the same branch.
 
 - **Breaking: `com.openugd.dependency.injection` is no longer a dependency.** It is removed from
   `package.json` and from the runtime asmdef. Nothing in corelib references `IInjector`, `IInject`,
@@ -44,9 +72,7 @@ entry under *Changed*.
   machine validated an ordering the caller could get wrong; the new pipeline runs the phases itself, so
   there is no ordering left to validate. Its two `async void` completion checks went with it — an
   exception from either could not be caught by anything and took the process down.
-- **Breaking: `Service` no longer implements `IResolve`,** and `IUIWindowService` no longer implements
-  `IResolve`. A window service that is also a service locator is the thing this reset exists to remove.
-  Ask the `Context`.
+- **Breaking: `Service` no longer implements `IResolve`.** Ask the `Context`.
 - **Breaking: `Widget.OnReady`, `Widget.Internal.Ready`, `ISubscribeNotify`,
   `IWidgetWithModel.ModelChanged`, `IWidgetWithView<TView>`, `IWidgetWithView.View`,
   `IWidgetWithView.OnViewAdded` / `.OnViewBeforeRemove` / `.OnViewAfterRemoved`,
@@ -60,7 +86,7 @@ entry under *Changed*.
   without calling `base` would silently stop rendering.
 - **Breaking: `SignalMonoBehaviour.UpdateSignal`, `.LateUpdateSignal`, `.FixedUpdateSignal` and
   `.AwakeSignal`.** Unity dispatches a per-frame message to every component that merely *defines*
-  `Update`, subscribers or not, and the three UI services attach one of these to every window, HUD
+  `Update`, subscribers or not, and the 0.6.x UI services attached one of these to every window, HUD
   element and tooltip — three engine dispatches per view per frame for nothing. `AwakeSignal` could
   never reach a subscriber: `AddComponent` runs `Awake` before it returns the reference you would
   subscribe through.
@@ -72,8 +98,6 @@ entry under *Changed*.
   name and by `.meta` GUID against every scene, prefab, asset and controller in the repository: none has
   a caller or a serialized reference. `MethodInvoker`/`MethodAttributeUtil` were also the only
   reflective-invocation code in the package.
-- **Breaking: `Runtime/Services/UI/IUIContextServiceSetup.cs`** (`IUIContextServiceSetup`,
-  `IUIContextServiceBuilder`). Every base type it named is deleted above.
 
 ### Moved
 
@@ -97,62 +121,12 @@ entry under *Changed*.
 - `PresenterExtensions.GetChildren(...)` — the two `Presenter.GetChildren` instance methods became
   extension methods. Call sites are unchanged as long as `OpenUGD.Core.Presenters` is imported.
 - `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
-- `ContextBuilder.AddWindowsService()`, `.AddWindow<T>()`, `.AddHudService()`, `.AddHud<T>()`,
-  `.AddToolTipService()`, `.RegisterTooltip<T>()`, and `ServiceCollection.AddCommandMap()` — the
-  installers, all `TryAdd`-shaped, so a consumer registration always wins.
+- `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - `Runtime/AssemblyInfo.cs` with `InternalsVisibleTo("com.openugd.corelib.tests")`.
-- An Edit Mode test suite: 70 tests over the presenter tree, the two hooks, the deleted surface, the
-  service open sequence, the command mapper, the layer seam and the 0.6.x upgrade of
-  `TransformProviderComponent`. All but four run without a Unity runtime; those four carry
-  `[Category("RequiresUnity")]` and load a prefab written in the 0.6.1 layout through the
-  `AssetDatabase`.
+- An Edit Mode test suite: 46 tests over the presenter tree, the two hooks, the deleted surface, the
+  presenter open sequence and the command mapper. None of them needs a Unity runtime.
 
 ### Changed
-
-- **Breaking: `ITransformProvider` layers are an open-ended keyed list instead of eight fixed
-  properties.** The interface goes from eleven members to four: `Canvas`, `Camera`, `Pool`, plus
-  `Layers` and `TryGetLayer(key, out layer)`.
-
-  The eight names are now extension methods over `TryGetLayer` in `TransformProviderExtensions`, with
-  their keys as `const string` in `UILayers`. Nothing about them is privileged — a project or a
-  third-party package declares a layer the same way, which was impossible before: an extension method
-  has nowhere to store a transform, so a ninth layer meant editing the interface and breaking every
-  implementation.
-
-  ```csharp
-  public static class MinimapLayer
-  {
-      public const string Key = "minimap";
-      public static RectTransform Minimap(this ITransformProvider provider) => provider.Layer(Key);
-  }
-  ```
-
-  Five of the old eight — `Background`, `Popup`, `Overlay`, `Splash`, `System` — had no caller
-  anywhere. They were not an extension point; they were spare slots shipped in the hope that eight
-  would be enough. They survive as keys and accessors, but a scene that binds none of them is valid.
-
-  - `provider.Hud` becomes `provider.Hud()`. C# has no extension properties; that is the whole
-    ergonomic cost.
-  - `TransformProviderComponent` exposes one ordered list in the inspector instead of eight fields.
-    Scenes and prefabs saved by 0.6.x are upgraded as they load, with nothing to reassign. `Canvas`,
-    `Camera` and `Pool` are read from their old serialized names through `[FormerlySerializedAs]`.
-    The eight old layer fields become eight rows in their old order — background, hud, window, popup,
-    tooltip, overlay, splash, system — keyed by `UILayers`, each keeping its transform; a field that
-    was never assigned becomes a row with no transform. Rows are added only to an empty list, never
-    over existing ones. The upgrade runs in memory on each load of the old data and becomes permanent
-    once Unity writes the file again: a save after an edit, or `AssetDatabase.ForceReserializeAssets`.
-    Data written by 2.0 carries a format stamp and is never upgraded, so a list emptied on purpose
-    stays empty. `Reset` seeds the eight built-in keys as empty rows, and `OnValidate` reports
-    duplicated keys.
-  - The `Func<ITransformProvider, Transform>` selector on `UIWindowComponentProvider` is unchanged.
-- **Breaking: a missing layer now throws `UILayerNotBoundException` instead of parenting to the scene
-  root.** `UIHudComponentProvider` and `UITooltipComponentProvider` previously read a `null` layer as
-  "scene root", instantiated there and called `DontDestroyOnLoad` on the view — so a layer forgotten in
-  the scene surfaced as interface drawn in the wrong place that also outlived every scene load, never
-  as an error where the mistake was. The exception names the key and lists what the provider does bind.
-  `UIWindowComponentProvider` keeps the `null`-parent branch, because there the parent comes from a
-  caller-supplied selector and returning `null` can be a deliberate choice.
-
 
 - **Breaking: the logging types are renamed, and the namespace `OpenUGD.Core.Loggers` becomes
   `OpenUGD.Core.Logging`.** `Logger` collided with `UnityEngine.Logger`, so every file with both
@@ -173,7 +147,7 @@ entry under *Changed*.
 
 - **Breaking: `Widget` is renamed `Presenter`, and the namespace `OpenUGD.Core.Widgets` is renamed
   `OpenUGD.Core.Presenters`.** The type is handed its view and never creates one — it is checked: all
-  20 `SetView` call sites pass a view in, and the UI services that instantiate a prefab then call
+  20 `SetView` call sites pass a view in, and the 0.6.x UI services that instantiate a prefab then call
   `SetView` on the presenter. Receiving the view rather than building it is what distinguishes a
   presenter (MVP, passive view) from a widget, which in every other UI framework *is* the view. The
   old name also made `Widget<Button, Action>` read as a widget wrapping a widget.
@@ -182,7 +156,7 @@ entry under *Changed*.
   - `Widget.Root` -> `Presenter.Root`; `AddWidget` -> `AddPresenter`
   - `IWidgetWithView` / `IWidgetWithModel` -> `IPresenterWithView` / `IPresenterWithModel`
   - `WidgetView` -> `ViewBehaviour` — it is a view, and `PresenterView` would have implied otherwise
-  - `WidgetExtensions` -> `PresenterExtensions`; `UITooltipWidget` -> `UITooltipPresenter`
+  - `WidgetExtensions` -> `PresenterExtensions`
 
   There are no `[Obsolete]` forwarding types: at this boundary the base class, the lifecycle hooks and
   the whole DI layer change together, so affected code cannot compile regardless.
@@ -198,8 +172,7 @@ entry under *Changed*.
   `OnDestroy` — and `Refresh()` is skipped once the lifetime has ended.
 - **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, Context)`.**
 - **Breaking: `Presenter.Internal.Initialize` takes a `Context`, has no `beforeInitialization` parameter,
-  and throws if the lifetime it is handed has already terminated.** The three UI services now check
-  `IsTerminated` at the top of the provider callback and skip the whole open.
+  and throws if the lifetime it is handed has already terminated.**
 - **Breaking: `Presenter.Children` is `IReadOnlyList<Presenter>` (a live view), not an array (a fresh
   one per call).** Do not hold it across anything that can close a presenter; use
   `PresenterExtensions.GetChildren` for a snapshot.
@@ -217,13 +190,6 @@ entry under *Changed*.
   is not a key — is now implemented by `CommandMapper`.
 - **Breaking: `CommandMap(Lifetime, IInjector)` → `CommandMap(Lifetime, Context)`;
   `CommandMapper(Lifetime, Type, IInjector)` → `CommandMapper(Lifetime, Type, Context)`.**
-- **Breaking: the UI installers hang off `ContextBuilder`, not `IUIContextServiceSetup`.**
-  `AddWindow<T>` / `AddHud<T>` / `RegisterTooltip<T>` reach into the *constructed* service's registry,
-  and nothing is constructed while a `ServiceCollection` is being filled — so the registration is
-  deferred to a `BootPhase.Configure` initializer: after every `AwakeAsync`, before any
-  `InitializeAsync` that might open a window.
-- **Breaking: `Options.SetInjector` / `Options.Injector` are now `SetContext` / `Context`**, and the
-  dictionary key changed from `"Injector"` to `"Context"`. Same on `HudOptions` and `WindowOptions`.
 - **Breaking: `Logger`'s six write methods take `object` instead of `dynamic`.** Source-compatible at
   every call site — a `dynamic` parameter is already `object` plus `[Dynamic]` in IL — and at every
   implementation, since `LoggerGlobal` and its nested `LoggerImpl` (now `LogRoot` and `TaggedLog`)
@@ -258,10 +224,9 @@ entry under *Changed*.
 - `package.json`: version 2.0.0; dependencies are now `com.openugd.lifetime`, `com.openugd.signal`,
   `com.openugd.context` and `com.unity.ugui` 2.0.0; `com.openugd.dependency.injection` removed;
   description and keywords rewritten.
-- `com.unity.ugui` is now declared, at 2.0.0 — the version built into Unity 6000.0. Four files compile
-  against `UnityEngine.EventSystems` (`ContextInstanceComponent`, `IContextInstanceProvider`,
-  `UITooltipComponent`, `IUITooltip`) and the package declared it nowhere. A fifth,
-  `IgnoreOnPointEnterInputModule`, was deleted.
+- `com.unity.ugui` is now declared, at 2.0.0 — the version built into Unity 6000.0. Two files compile
+  against `UnityEngine.EventSystems` (`ContextInstanceComponent`, `IContextInstanceProvider`) and the
+  package declared it nowhere. A third, `IgnoreOnPointEnterInputModule`, was deleted.
 - **Licence changed from MIT to Apache-2.0.** The previous `LICENSE` was a mutated MIT whose copyright
   line had been deleted and whose attribution clause was replaced with the literal text "No
   conditions.", which left it legally ambiguous. It is now the verbatim Apache License 2.0 with an

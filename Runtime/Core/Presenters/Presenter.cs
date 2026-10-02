@@ -67,8 +67,8 @@ namespace OpenUGD.Core.Presenters
 
     /// <summary>
     /// A presenter whose model is known statically. Exists to be used as a generic constraint — it is what
-    /// lets <c>Open&lt;TPresenter, TModel&gt;(TModel model)</c> reject a model the presenter cannot hold, at
-    /// compile time rather than with a cast at the far end of a callback.
+    /// lets an opening API shaped like <c>Open&lt;TPresenter, TModel&gt;(TModel model)</c> reject a model the
+    /// presenter cannot hold, at compile time rather than with a cast at the far end of a callback.
     /// </summary>
     /// <typeparam name="TModel">The model type.</typeparam>
     public interface IPresenterWithModel<TModel> : IPresenterWithModel
@@ -271,7 +271,8 @@ namespace OpenUGD.Core.Presenters
         }
 
         /// <summary>
-        /// Attachment, for the presenter-opening services in this assembly. Not part of the public API.
+        /// Attachment, shared by <see cref="AddPresenter{T}"/> and <see cref="Root"/>. Not part of the public
+        /// API.
         /// </summary>
         internal static class Internal
         {
@@ -345,7 +346,7 @@ namespace OpenUGD.Core.Presenters
     /// <para>
     /// <b>Why <c>OnReady</c> was deleted.</b> It was two mechanisms that disagreed. A child added through
     /// <see cref="Presenter.AddPresenter{T}"/> got a latch that waited for both a view and a model; a
-    /// presenter opened by one of the UI services got a direct push that never looked at the model; and
+    /// presenter opened by one of the 0.6.x UI services got a direct push that never looked at the model; and
     /// <see cref="Presenter.Root"/> got neither, so its <c>OnReady</c> never fired at all. Which of the three
     /// you got depended on how the presenter happened to be created — the exact shape of "keeps running while
     /// doing the wrong thing". The presenters showed what was actually wanted: one of them wrote the same

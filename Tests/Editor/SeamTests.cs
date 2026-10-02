@@ -9,11 +9,13 @@ using OpenUGD.Services.Commands;
 
 namespace OpenUGD.Tests
 {
-    // The two seams the blind presenter suite could not reach, because both go through internals the
-    // three UI services use:
-    //   1. Presenter.Internal.Initialize -> SetModel -> SetView is what replaced Presenter.Internal.Ready.
-    //      If this sequence ever stops producing exactly one wiring and one render with both halves
-    //      present, deleting Ready was wrong and the services need a push again.
+    // The two seams the blind presenter suite could not reach, because both go through internals:
+    //   1. Presenter.Internal.Initialize -> SetModel -> SetView is the open sequence of a presenter-opening
+    //      service, and what replaced Presenter.Internal.Ready. The 0.6.x UI services that ran it left
+    //      corelib in 2.0.0 (branch park/ui-services, future com.openugd.corelib.ui); the sequence stays
+    //      pinned here because Presenter is what any such host builds on. If it ever stops producing
+    //      exactly one wiring and one render with both halves present, deleting Ready was wrong and a host
+    //      needs a push again.
     //   2. CommandMapper builds each command with Context.Instantiate and aggregates failures.
     [TestFixture]
     public class SeamTests
@@ -39,7 +41,7 @@ namespace OpenUGD.Tests
         [Test]
         public void ServiceOpenSequence_ProducesOneWiringAndOneRender_WithBothHalvesPresent()
         {
-            // Exactly what UIWindowService / UIHudService / UITooltipService now do.
+            // Exactly what the 0.6.x UIWindowService / UIHudService / UITooltipService did on open.
             var definition = _definition.Lifetime.DefineNested("open");
             var presenter = new Panel();
 
@@ -62,7 +64,7 @@ namespace OpenUGD.Tests
 
             Assert.Throws<InvalidOperationException>(
                 () => Presenter.Internal.Initialize(_context, new Panel(), definition),
-                "the three services check IsTerminated at the top of the provider callback for this reason");
+                "a host must check IsTerminated before attaching, and skip the whole open, for this reason");
         }
 
         [Test]

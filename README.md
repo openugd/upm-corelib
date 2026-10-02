@@ -1,12 +1,14 @@
 # CoreLib
 
-Application composition for Unity: contexts, services, presenters and utilities.
+The Unity boundary of the OpenUGD family: a `MonoBehaviour` that boots a `com.openugd.context` `Context`,
+plus presenters, logging, commands and the coroutine and thread seams that go with them.
 
-CoreLib provides the wiring layer for a Unity application. A context builder collects services, resolves
-them through `com.openugd.dependency.injection`, and drives them through an async `OnAwake` / `OnInitialize`
-lifecycle bound to a `Lifetime` from `com.openugd.lifetime`. On top of that it adds a presenter tree for view
-composition, a command mapper for message handling, tagged logging, and helpers for resource loading,
-persistence and observable values.
+`ContextBehaviour` owns a `Lifetime` that ends with its GameObject, builds a `Context` under it — the
+container from [`com.openugd.context`](https://github.com/openugd/upm-context), with its async
+`AwakeAsync` / `InitializeAsync` boot — and republishes Unity's frame and application callbacks as signals.
+On top of that CoreLib adds a presenter tree for view composition, a command mapper for message handling,
+tagged logging with a Unity console sink, and interfaces over coroutines and `SynchronizationContext` that a
+test can replace.
 
 ## Install
 
@@ -32,7 +34,7 @@ Add the registry and the package to `Packages/manifest.json`:
     }
   ],
   "dependencies": {
-    "com.openugd.corelib": "0.6.1"
+    "com.openugd.corelib": "2.0.0"
   }
 }
 ```
@@ -50,7 +52,7 @@ In `Packages/manifest.json`:
 ```
 
 Installing by git URL does not resolve the transitive OpenUGD dependencies — add
-`com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.dependency.injection` the same way.
+`com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context` the same way.
 
 ## Quick start
 
@@ -127,23 +129,40 @@ integration test can await and a failure cannot vanish into.
 
 ## API overview
 
+This is the whole public surface of the package.
+
 | Type | Namespace | Purpose |
 | --- | --- | --- |
 | `ContextBehaviour` | `OpenUGD.Core` | MonoBehaviour entry point: owns the `Lifetime`, builds the `Context`, exposes the Unity loop as signals, and surfaces the boot as an awaitable `Startup`. |
-| `Presenter`, `Presenter<TView>`, `Presenter<TView, TModel>`, `ViewBehaviour` | `OpenUGD.Core.Presenters` | Hierarchical view composition with per-presenter lifetimes. |
-| `ILog`, `ILogSink`, `LogFlags`, `LogRoot`, `UnityLogSink` | `OpenUGD.Core.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
-| `ILocalization`, `ILocalizationChanged` | `OpenUGD.Core` | Optional localization seams the text presenters take with `[Inject(Optional = true)]`. |
-| `ITransformProvider`, `UILayer`, `UILayers`, `TransformProviderComponent` | `OpenUGD.Services.UI` | The scene's UI stack as an open-ended, keyed list of layers. |
-| `IUIWindowService`, `WindowOptions`, `UIWindowComponentProvider` | `OpenUGD.Services.UI.Windows` | Opening, closing and pooling windows. |
-| `IHudService`, `HudOptions` | `OpenUGD.Services.UI.Hud` | Always-on gameplay interface. |
-| `IUITooltip`, `UITooltipMap`, `UITooltipPresenter` | `OpenUGD.Services.UI.Tooltip` | Pointer-driven tooltips. |
-| `ICommandMapper`, `CommandMapper`, `CommandMap`, `IMapCommand` | `OpenUGD.Commands` | Maps messages to command types. |
-| `PrefabResourceManager`, `ResourceResult` | `OpenUGD.Utils` | Lifetime-scoped prefab loading, instantiation and pooling. |
-| `ICoroutineProvider`, `CoroutineProvider`, `SynchronizationContextWrapper` | `OpenUGD.Utils` | Coroutines and thread marshalling, behind interfaces a test can replace. |
+| `ContextBehaviourEditor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
+| `Presenter`, `Presenter.Root`, `Presenter<TView>`, `Presenter<TView, TModel>` | `OpenUGD.Core.Presenters` | Hierarchical view composition with per-presenter lifetimes. Engine-free. |
+| `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `OpenUGD.Core.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
+| `PresenterExtensions` | `OpenUGD.Core.Presenters` | `GetViewType` and `GetChildren` snapshots of the tree. |
+| `ViewBehaviour` | `OpenUGD.Core.Presenters` | A MonoBehaviour whose `Lifetime` ends in `OnDestroy`, to tie a presenter's scope to its view. |
+| `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | `OpenUGD.Core.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
+| `UnityLogSink`, `UnityLogSinkExtensions` | `OpenUGD.Core.Logging` | A sink that writes to the Unity console, and `UseUnityConsole(lifetime)` to attach one. |
+| `ILocalization`, `ILocalizationChanged` | `OpenUGD.Core` | Optional localization seams the text presenters in `com.openugd.corelib.widgets` take with `[Inject(Optional = true)]`. |
+| `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `OpenUGD.Commands` | Maps message types to command types; each command is built by the `Context`. |
+| `CommandMapExtensions` | `OpenUGD.Services.Commands` | `AddCommandMap()` on a `ServiceCollection`; `MapCommand()` and `Tell(message)` on a `Context`. |
+| `ICoroutineProvider`, `CoroutineProvider` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
+| `ISynchronizationContext`, `SynchronizationContextWrapper` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
+| `SignalMonoBehaviour` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
 | `Service` | `OpenUGD.Services` | `[Obsolete]` migration shim. Implement `IAwakeService` / `IInitializeService` instead. |
+| `ContextFactoryComponent`, `ContextFactoryComponent<T>`, `ContextFactoryComponentEditor` | `OpenUGD.Core`, `OpenUGD.Core.Editor` | `[Obsolete]` migration shims over `ContextBehaviour`, and their inspector. |
+| `ContextInstanceComponent`, `ContextFactoryInstancesComponent`, `IContextInstanceProvider`, `ContextFactoryInstancesComponentEditor` | `OpenUGD.Core`, `OpenUGD.Core.Editor` | Several game instances, one per display, in one process, and the factory's inspector. |
 
 Composition itself lives in [`com.openugd.context`](https://github.com/openugd/upm-context): `Context`,
 `ContextBuilder`, `ServiceCollection`, `[Inject]`. CoreLib is the Unity boundary around it.
+
+## Not in 2.0.0
+
+- **The UI services** — the window, HUD and tooltip services, `ITransformProvider` and
+  `TransformProviderComponent`, the UI layers, and `PrefabResourceManager`, which only they used. They
+  are to be replaced by one presenter host with policies in a separate package,
+  `com.openugd.corelib.ui`, released as a 2.x when it is ready. The 0.6.x code is kept unchanged on the
+  branch `park/ui-services` of this repository as that package's starting point. It is not a drop-in:
+  it registers through `BootPhase.Configure`, which `com.openugd.context` 2.0.0 does not have. Until the
+  new package ships, a project that needs these services stays on corelib 0.6.1.
 
 ## Requirements
 
