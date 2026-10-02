@@ -137,7 +137,7 @@ This is the whole public surface of the package.
 | `ContextBehaviourEditor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
 | `Presenter`, `Presenter.Root`, `Presenter<TView>`, `Presenter<TView, TModel>` | `OpenUGD.Core.Presenters` | Hierarchical view composition with per-presenter lifetimes. Engine-free. |
 | `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `OpenUGD.Core.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
-| `PresenterExtensions` | `OpenUGD.Core.Presenters` | `GetViewType` and `GetChildren` snapshots of the tree. |
+| `PresenterExtensions` | `OpenUGD.Core.Presenters` | `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
 | `ViewBehaviour` | `OpenUGD.Core.Presenters` | A MonoBehaviour whose `Lifetime` ends in `OnDestroy`, to tie a presenter's scope to its view. |
 | `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | `OpenUGD.Core.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
 | `UnityLogSink`, `UnityLogSinkExtensions` | `OpenUGD.Core.Logging` | A sink that writes to the Unity console, and `UseUnityConsole(lifetime)` to attach one. |
@@ -165,10 +165,11 @@ Import them from the Package Manager window: select CoreLib, then the Samples ta
 - **The UI services** — the window, HUD and tooltip services, `ITransformProvider` and
   `TransformProviderComponent`, the UI layers, and `PrefabResourceManager`, which only they used. They
   are to be replaced by one presenter host with policies in a separate package,
-  `com.openugd.corelib.ui`, released as a 2.x when it is ready. The 0.6.x code is kept unchanged on the
-  branch `park/ui-services` of this repository as that package's starting point. It is not a drop-in:
-  it registers through `BootPhase.Configure`, which `com.openugd.context` 2.0.0 does not have. Until the
-  new package ships, a project that needs these services stays on corelib 0.6.1.
+  `com.openugd.corelib.ui`, released as a 2.x when it is ready. The services are kept, exactly as they
+  were when they left this package, on the branch `park/ui-services` of this repository as that
+  package's starting point. That code is not a drop-in: it registers through `BootPhase.Configure`,
+  which `com.openugd.context` 2.0.0 does not have. Until the new package ships, a project that needs
+  these services stays on corelib 0.6.1.
 - **The 0.6.x base types `Service`, `ContextFactoryComponent` and `ContextFactoryComponent<T>`.** No
   shim replaces them: shims that ship in 2.0.0 could only be removed in 3.0. A `Service` becomes a plain
   class that implements `IAwakeService` / `IInitializeService`, as `ProfileService` does above, and a

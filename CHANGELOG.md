@@ -40,12 +40,13 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
   They are to be replaced by one presenter host with policies, in a separate package,
   `com.openugd.corelib.ui`, released as a 2.x once it passes its acceptance test. Shipping the old
   services in 2.0.0 would have meant carrying three copy-paste services through every 2.x next to their
-  replacement, because a type released in 2.0.0 can only be removed in 3.0. The code is kept exactly as
-  it was on the branch `park/ui-services` of this repository, as the starting point of that package. It
-  is not a drop-in: it registers through `BootPhase.Configure`, which `com.openugd.context` 2.0.0 does
-  not have. `TransformProviderComponent` is planned to move there with its `.meta` unchanged, so scene
-  references to it survive the move. Until that package ships, corelib 2.0.0 has no window, HUD or
-  tooltip service; a project that needs them now stays on 0.6.1. Their 24 tests are on the same branch.
+  replacement, because a type released in 2.0.0 can only be removed in 3.0. The code is kept, exactly as
+  it was when it left this package, on the branch `park/ui-services` of this repository, as the starting
+  point of that package. It is not a drop-in: it registers through `BootPhase.Configure`, which
+  `com.openugd.context` 2.0.0 does not have. `TransformProviderComponent` is planned to move there with
+  its `.meta` unchanged, so scene references to it survive the move. Until that package ships, corelib
+  2.0.0 has no window, HUD or tooltip service; a project that needs them now stays on 0.6.1. Their 24
+  tests are on the same branch.
 
 - **Breaking: `com.openugd.dependency.injection` is no longer a dependency.** It is removed from
   `package.json` and from the runtime asmdef. Nothing in corelib references `IInjector`, `IInject`,
