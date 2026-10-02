@@ -1,6 +1,6 @@
 using System;
 
-namespace OpenUGD.Core.Logging
+namespace OpenUGD.Logging
 {
     /// <summary>
     /// A sink for log records. Attach one to a <see cref="LogRoot"/> with <c>LogRoot.Subscribe</c>.

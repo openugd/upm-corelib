@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace OpenUGD.Core.Presenters
+namespace OpenUGD.Presenters
 {
 
     /// <summary>

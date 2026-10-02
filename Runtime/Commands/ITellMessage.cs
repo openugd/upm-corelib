@@ -27,7 +27,7 @@ namespace OpenUGD.Commands
         /// <para>
         /// <b>The parameter is <c>object</c>, not <see cref="IMessage"/>,</b> because an implementation may
         /// be a listener that forwards anything it is given. The typed door is
-        /// <c>OpenUGD.Services.Commands.CommandMapExtensions.Tell</c>, which constrains the argument to
+        /// <see cref="CommandMapExtensions.Tell"/>, which constrains the argument to
         /// <see cref="IMessage"/>; use that in game code and keep this for plumbing.
         /// </para>
         /// <para>

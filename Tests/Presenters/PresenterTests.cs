@@ -5,9 +5,8 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using OpenUGD.Core.Presenters;
 
-namespace OpenUGD.Tests
+namespace OpenUGD.Presenters.Tests
 {
     // Specification source: ROADMAP-v2.md section 4.2 ("Presenters: OnReady is deleted").
     //
@@ -595,8 +594,8 @@ namespace OpenUGD.Tests
         [Test]
         public void Attach_InjectsOptionalMembersBeforeOnInitialize()
         {
-            // The ordering TextPresenter depends on: it subscribes to the injected ILocalizationChanged from
-            // inside OnInitialize, so the field must already hold its value by then.
+            // The ordering the widgets' TextPresenter depends on: it subscribes to an optional injected service
+            // from inside OnInitialize, so the field must already hold its value by then.
             var presenter = CreateRoot().AddPresenter(new OptionallyInjectedPresenter());
 
             Assert.AreSame(presenter.Probe, presenter.ProbeSeenDuringInitialize,

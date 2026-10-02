@@ -3,22 +3,13 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
-using OpenUGD.Commands;
-using OpenUGD.Core.Presenters;
-using OpenUGD.Services.Commands;
 
-namespace OpenUGD.Tests
+namespace OpenUGD.Commands.Tests
 {
-    // The two seams the blind presenter suite could not reach, because both go through internals:
-    //   1. Presenter.Internal.Initialize -> SetModel -> SetView is the open sequence of a presenter-opening
-    //      service, and what replaced Presenter.Internal.Ready. The 0.6.x UI services that ran it left
-    //      corelib in 2.0.0 (branch park/ui-services, future com.openugd.corelib.ui); the sequence stays
-    //      pinned here because Presenter is what any such host builds on. If it ever stops producing
-    //      exactly one wiring and one render with both halves present, deleting Ready was wrong and a host
-    //      needs a push again.
-    //   2. CommandMapper builds each command with Context.Instantiate and aggregates failures.
+    // CommandMapper builds each command with Context.Instantiate, offering the message and the registration's
+    // scope as constructor arguments, and aggregates failures.
     [TestFixture]
-    public class SeamTests
+    public class CommandMapperTests
     {
         private Lifetime.Definition _definition;
         private Context _context;
@@ -37,35 +28,6 @@ namespace OpenUGD.Tests
 
         [TearDown]
         public void TearDown() => _definition.Terminate();
-
-        [Test]
-        public void ServiceOpenSequence_ProducesOneWiringAndOneRender_WithBothHalvesPresent()
-        {
-            // Exactly what the 0.6.x UIWindowService / UIHudService / UITooltipService did on open.
-            var definition = _definition.Lifetime.DefineNested("open");
-            var presenter = new Panel();
-
-            Presenter.Internal.Initialize(_context, presenter, definition);
-
-            ((IPresenterWithModel)presenter).SetModel("payload");
-            var mediatorView = (IPresenterWithView)presenter;
-            Assert.AreEqual(typeof(FakeView), mediatorView.ViewType);
-            mediatorView.SetView(new FakeView());
-
-            CollectionAssert.AreEqual(new[] { "initialize", "view-added", "refresh:payload" }, presenter.Log,
-                "the model must already be in place when the first render runs");
-        }
-
-        [Test]
-        public void ServiceOpenSequence_OnATerminatedScope_Throws_SoTheGuardMustComeFirst()
-        {
-            var definition = _definition.Lifetime.DefineNested("open");
-            definition.Terminate();
-
-            Assert.Throws<InvalidOperationException>(
-                () => Presenter.Internal.Initialize(_context, new Panel(), definition),
-                "a host must check IsTerminated before attaching, and skip the whole open, for this reason");
-        }
 
         [Test]
         public void CommandMapper_BuildsEachCommandFromTheContext_AndOffersTheMessageAndScope()
@@ -164,22 +126,6 @@ namespace OpenUGD.Tests
         public sealed class ThrowingCommand : ICommand
         {
             public void Execute() => throw new InvalidOperationException("boom");
-        }
-
-        private sealed class FakeView
-        {
-            public bool IsAlive => true;
-        }
-
-        private sealed class Panel : Presenter<FakeView, string>
-        {
-            public List<string> Log { get; } = new List<string>();
-
-            protected override void OnInitialize() => Log.Add("initialize");
-
-            protected override void OnViewAdded() => Log.Add("view-added");
-
-            protected override void OnRefresh() => Log.Add("refresh:" + Model);
         }
     }
 }

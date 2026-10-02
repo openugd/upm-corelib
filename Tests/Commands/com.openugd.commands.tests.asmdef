@@ -1,10 +1,9 @@
 {
-    "name": "com.openugd.corelib.tests",
-    "rootNamespace": "OpenUGD.Tests",
+    "name": "com.openugd.commands.tests",
+    "rootNamespace": "OpenUGD.Commands.Tests",
     "references": [
-        "com.openugd.corelib",
+        "com.openugd.commands",
         "com.openugd.context",
-        "com.openugd.signal",
         "com.openugd.lifetime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"

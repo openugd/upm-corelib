@@ -14,8 +14,9 @@ CoreLib is now the Unity boundary for `com.openugd.context` plus the utilities t
 nothing else. The composition layer it used to own is gone: `com.openugd.context` 2.0.0 does that job,
 validates the whole graph before constructing anything, and has its own test suite. Read this whole
 section before upgrading — most of it is breaking, and every break is named so you can tell whether it
-reaches you. The two headline breaks are the UI services leaving corelib, the first entry under
-*Removed*, and the rename of `Widget` to `Presenter`, under *Changed*.
+reaches you. The three headline breaks are the UI services leaving corelib, the first entry under
+*Removed*, and the split into five assemblies and the rename of `Widget` to `Presenter`, the first two
+entries under *Changed*.
 
 ### Removed
 
@@ -66,7 +67,7 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 - **Breaking: `OpenUGD.Core.ILoggerProvider`.** It collided by name with
   `OpenUGD.Core.Loggers.ILoggerProvider` and was already unreachable — both `UnityLoggerProvider` and
   `LoggerGlobal` bind to the `Loggers` one, because that is the namespace they lived in. That
-  namespace is now `OpenUGD.Core.Logging` — see *Changed*.
+  namespace is now `OpenUGD.Logging` — see *Changed*.
 - **Breaking: `OpenUGD.Core.ILifetimeProvider`.** `OpenUGD.ILifetimeProvider`, from the context
   package, replaces it. `Context` already implements it.
 - **Breaking: `Service`, `ContextFactoryComponent` and `ContextFactoryComponent<T>` are removed, with no
@@ -115,6 +116,10 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 
 ### Moved
 
+- **Breaking: `ILocalization` and `ILocalizationChanged` leave corelib for `com.openugd.corelib.widgets`,**
+  whose text presenters are their only consumer. They keep their script GUIDs
+  (`811ccaf8d3814cd79d54b3644f8bcee2`, `05cafe5169154497a5743cc363799b14`). Migration: an implementation
+  of either interface needs `com.openugd.corelib.widgets` and its namespace; see that package's CHANGELOG.
 - **Breaking: the multi-display components move out of the package into the *Multi Instance* sample.**
   `ContextInstanceComponent`, `ContextFactoryInstancesComponent`, `IContextInstanceProvider` and the
   inspector `ContextFactoryInstancesComponentEditor` are no longer compiled into corelib. Import the
@@ -158,17 +163,46 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 - `Presenter<TView>.OnRefresh()` and `Presenter<TView>.Refresh()` — see *Presenters*.
 - `Presenter.Context`, so a presenter can reach the container it was injected from.
 - `PresenterExtensions.GetChildren(...)` — the two `Presenter.GetChildren` instance methods became
-  extension methods. Call sites are unchanged as long as `OpenUGD.Core.Presenters` is imported.
+  extension methods. Call sites are unchanged as long as `OpenUGD.Presenters` is imported.
 - `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
-- `Runtime/AssemblyInfo.cs` with `InternalsVisibleTo("com.openugd.corelib.tests")`.
-- An Edit Mode test suite: 49 tests over the presenter tree, the two hooks, the deleted surface, the
-  presenter open sequence and the command mapper. None of them needs a Unity runtime.
+- `InternalsVisibleTo("com.openugd.presenters.tests")` on `com.openugd.presenters`, so its tests can
+  drive `Presenter.Internal`, the attach sequence a presenter-opening service uses.
+- Edit Mode test suites, one per tested assembly: `com.openugd.presenters.tests` (45 tests over the
+  presenter tree, the two hooks, the deleted surface and the presenter open sequence) and
+  `com.openugd.commands.tests` (4 tests over the command mapper). None of them needs a Unity runtime.
 
 ### Changed
 
+- **Breaking: corelib is five assemblies.** The one `com.openugd.corelib` runtime assembly of 0.6.1 is
+  split by concern, inside this one package. Each assembly is named as if it were its own package:
+
+  | Assembly | Contents | References | UnityEngine |
+  | --- | --- | --- | --- |
+  | `com.openugd.corelib` | the Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `ICoroutineProvider`/`CoroutineProvider`, `ISynchronizationContext`/`SynchronizationContextWrapper` | lifetime, signal, context | yes, no uGUI |
+  | `com.openugd.presenters` | `Presenter` and its interfaces, `PresenterExtensions` | lifetime, context | no |
+  | `com.openugd.commands` | the command map, mappers and `AddCommandMap` | lifetime, context | no |
+  | `com.openugd.logging` | `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | nothing | no |
+  | `com.openugd.logging.unity` | `UnityLogSink`, `UseUnityConsole` | logging, lifetime | yes |
+
+  "No" means `noEngineReferences: true`: the compiler, not a comment, keeps UnityEngine out. All five are
+  auto-referenced, so scripts in `Assembly-CSharp` need no change beyond the namespaces below. Migration
+  for an assembly definition of your own that referenced `com.openugd.corelib`: add the assembly names of
+  the types it uses — `com.openugd.presenters` for presenters, `com.openugd.commands` for commands,
+  `com.openugd.logging` (and `com.openugd.logging.unity` for the console sink) for logging — and keep
+  `com.openugd.corelib` only if it uses the Unity boundary types.
+- **Breaking: namespaces follow the assemblies.** Migration: change the `using` lines.
+
+  | 0.6.1 | 2.0.0 |
+  | --- | --- |
+  | `OpenUGD.Core.Loggers` | `OpenUGD.Logging` (`UnityLogSink` included, though it is in its own assembly) |
+  | `OpenUGD.Core.Widgets` | `OpenUGD.Presenters` (`ViewBehaviour` included, though it is in `com.openugd.corelib`) |
+  | `OpenUGD.Services.Commands` (`CommandMapExtensions`) | `OpenUGD.Commands`, with the rest of the command types |
+
+  The Unity boundary keeps its 0.6.1 namespaces: `OpenUGD.Core` (`ContextBehaviour`), `OpenUGD.Utils`
+  (coroutines, `ISynchronizationContext`) and `OpenUGD.Utils.Components` (`SignalMonoBehaviour`).
 - **Breaking: the logging types are renamed, and the namespace `OpenUGD.Core.Loggers` becomes
-  `OpenUGD.Core.Logging`.** `Logger` collided with `UnityEngine.Logger`, so every file with both
+  `OpenUGD.Logging`.** `Logger` collided with `UnityEngine.Logger`, so every file with both
   `using UnityEngine;` and `using OpenUGD.Core.Loggers;` failed to compile with CS0104 — this
   repository's own `ProjectContext.cs` carried a `using Logger = OpenUGD.Core.Loggers.Logger;` alias to
   work around it. `Logger` was also an *interface* declared without the `I` prefix.
@@ -184,7 +218,7 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 
 
 - **Breaking: `Widget` is renamed `Presenter`, and the namespace `OpenUGD.Core.Widgets` is renamed
-  `OpenUGD.Core.Presenters`.** The type is handed its view and never creates one — it is checked: all
+  `OpenUGD.Presenters`.** The type is handed its view and never creates one — it is checked: all
   20 `SetView` call sites pass a view in, and the 0.6.x UI services that instantiate a prefab then call
   `SetView` on the presenter. Receiving the view rather than building it is what distinguishes a
   presenter (MVP, passive view) from a widget, which in every other UI framework *is* the view. The

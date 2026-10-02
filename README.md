@@ -8,7 +8,8 @@ container from [`com.openugd.context`](https://github.com/openugd/upm-context), 
 `AwakeAsync` / `InitializeAsync` boot — and republishes Unity's frame and application callbacks as signals.
 On top of that CoreLib adds a presenter tree for view composition, a command mapper for message handling,
 tagged logging with a Unity console sink, and interfaces over coroutines and `SynchronizationContext` that a
-test can replace.
+test can replace. Presenters, commands and logging each have an assembly of their own that does not
+reference UnityEngine — see [Assemblies](#assemblies).
 
 ## Install
 
@@ -63,7 +64,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using OpenUGD;
 using OpenUGD.Core;
-using OpenUGD.Core.Logging;
+using OpenUGD.Logging;
 using UnityEngine;
 
 public interface IProfileService
@@ -127,26 +128,48 @@ GameObject, exposes `OnUpdate` / `OnLateUpdate` / `OnFixedUpdate` / `OnFocus` / 
 signals, implements `ICoroutineProvider`, and keeps the boot in `Startup` — an awaitable `Task` an
 integration test can await and a failure cannot vanish into.
 
+## Assemblies
+
+The package holds five runtime assemblies, one per concern, each named as if it were its own package:
+
+| Assembly | What it holds | References | UnityEngine |
+| --- | --- | --- | --- |
+| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, the coroutine and `SynchronizationContext` seams. | lifetime, signal, context | yes; no uGUI |
+| `com.openugd.presenters` | The presenter tree. | lifetime, context | no |
+| `com.openugd.commands` | The command map. | lifetime, context | no |
+| `com.openugd.logging` | Tagged logging and its sink interface. | nothing | no |
+| `com.openugd.logging.unity` | The Unity console sink. | logging, lifetime | yes |
+| `com.openugd.corelib.editor` | The `ContextBehaviour` inspector. Editor only. | corelib, context, lifetime | editor |
+
+"No" means the assembly definition sets `noEngineReferences`, so the compiler rejects any use of
+UnityEngine there and the code runs in a plain .NET test. None of the five references another, except the
+console sink, which extends logging.
+
+All of them are auto-referenced, so scripts in `Assembly-CSharp` see every type below. An assembly
+definition of your own lists the assemblies it uses by name: `com.openugd.presenters` for a presenter,
+`com.openugd.commands` for commands, `com.openugd.logging` for `ILog`, plus the assemblies whose types
+those signatures carry — usually `com.openugd.lifetime` and `com.openugd.context` — because Unity does not
+pass references on.
+
 ## API overview
 
 This is the whole public surface of the package.
 
-| Type | Namespace | Purpose |
-| --- | --- | --- |
-| `ContextBehaviour` | `OpenUGD.Core` | MonoBehaviour entry point: owns the `Lifetime`, builds the `Context`, exposes the Unity loop as signals, and surfaces the boot as an awaitable `Startup`. |
-| `ContextBehaviourEditor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
-| `Presenter`, `Presenter.Root`, `Presenter<TView>`, `Presenter<TView, TModel>` | `OpenUGD.Core.Presenters` | Hierarchical view composition with per-presenter lifetimes. Engine-free. |
-| `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `OpenUGD.Core.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
-| `PresenterExtensions` | `OpenUGD.Core.Presenters` | `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
-| `ViewBehaviour` | `OpenUGD.Core.Presenters` | A MonoBehaviour whose `Lifetime` ends in `OnDestroy`, to tie a presenter's scope to its view. |
-| `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | `OpenUGD.Core.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
-| `UnityLogSink`, `UnityLogSinkExtensions` | `OpenUGD.Core.Logging` | A sink that writes to the Unity console, and `UseUnityConsole(lifetime)` to attach one. |
-| `ILocalization`, `ILocalizationChanged` | `OpenUGD.Core` | Optional localization seams the text presenters in `com.openugd.corelib.widgets` take with `[Inject(Optional = true)]`. |
-| `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `OpenUGD.Commands` | Maps message types to command types; each command is built by the `Context`. |
-| `CommandMapExtensions` | `OpenUGD.Services.Commands` | `AddCommandMap()` on a `ServiceCollection`; `MapCommand()` and `Tell(message)` on a `Context`. |
-| `ICoroutineProvider`, `CoroutineProvider` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
-| `ISynchronizationContext`, `SynchronizationContextWrapper` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
-| `SignalMonoBehaviour` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
+| Type | Assembly | Namespace | Purpose |
+| --- | --- | --- | --- |
+| `ContextBehaviour` | `com.openugd.corelib` | `OpenUGD.Core` | MonoBehaviour entry point: owns the `Lifetime`, builds the `Context`, exposes the Unity loop as signals, and surfaces the boot as an awaitable `Startup`. |
+| `ContextBehaviourEditor` | `com.openugd.corelib.editor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
+| `ViewBehaviour` | `com.openugd.corelib` | `OpenUGD.Presenters` | A MonoBehaviour whose `Lifetime` ends in `OnDestroy`, to tie a presenter's scope to its view. |
+| `ICoroutineProvider`, `CoroutineProvider` | `com.openugd.corelib` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
+| `ISynchronizationContext`, `SynchronizationContextWrapper` | `com.openugd.corelib` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
+| `SignalMonoBehaviour` | `com.openugd.corelib` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
+| `Presenter`, `Presenter.Root`, `Presenter<TView>`, `Presenter<TView, TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | Hierarchical view composition with per-presenter lifetimes. |
+| `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
+| `PresenterExtensions` | `com.openugd.presenters` | `OpenUGD.Presenters` | `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
+| `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | Maps message types to command types; each command is built by the `Context`. |
+| `CommandMapExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | `AddCommandMap()` on a `ServiceCollection`; `MapCommand()` and `Tell(message)` on a `Context`. |
+| `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | `com.openugd.logging` | `OpenUGD.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
+| `UnityLogSink`, `UnityLogSinkExtensions` | `com.openugd.logging.unity` | `OpenUGD.Logging` | A sink that writes to the Unity console, and `UseUnityConsole(lifetime)` to attach one. |
 
 Composition itself lives in [`com.openugd.context`](https://github.com/openugd/upm-context): `Context`,
 `ContextBuilder`, `ServiceCollection`, `[Inject]`. CoreLib is the Unity boundary around it.
@@ -177,6 +200,8 @@ Import them from the Package Manager window: select CoreLib, then the Samples ta
   [CHANGELOG](CHANGELOG.md) lists each step of the port.
 - **The multi-display components** `ContextInstanceComponent`, `ContextFactoryInstancesComponent` and
   `IContextInstanceProvider`. They are the *Multi Instance* sample now; see *Samples* above.
+- **`ILocalization` and `ILocalizationChanged`.** They moved to `com.openugd.corelib.widgets`, whose text
+  presenters are the only code that takes them.
 
 ## Requirements
 

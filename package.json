@@ -10,7 +10,7 @@
     "email": "dorofiy.kolya@gmail.com",
     "url": "https://github.com/openugd"
   },
-  "description": "The Unity boundary of the OpenUGD family: ContextBehaviour, a MonoBehaviour that boots a com.openugd.context Context and exposes the Unity loop as signals, plus a presenter tree for view composition, a command mapper for message handling, tagged logging with a Unity console sink, and coroutine and SynchronizationContext seams a test can replace.",
+  "description": "The Unity boundary of the OpenUGD family, in five assemblies. com.openugd.corelib holds ContextBehaviour, a MonoBehaviour that boots a com.openugd.context Context and exposes the Unity loop as signals, with coroutine and SynchronizationContext seams a test can replace. Three engine-free assemblies add a presenter tree for view composition (com.openugd.presenters), a command mapper for message handling (com.openugd.commands) and tagged logging (com.openugd.logging); com.openugd.logging.unity writes that log to the Unity console.",
   "keywords": [
     "core",
     "lib",
@@ -18,6 +18,8 @@
     "context",
     "services",
     "presenters",
+    "commands",
+    "logging",
     "composition",
     "dependency-injection",
     "lifetime",

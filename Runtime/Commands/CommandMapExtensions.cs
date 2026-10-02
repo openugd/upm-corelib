@@ -1,8 +1,7 @@
 using System;
 using System.Runtime.CompilerServices;
-using OpenUGD.Commands;
 
-namespace OpenUGD.Services.Commands
+namespace OpenUGD.Commands
 {
     /// <summary>Registers and reaches a <see cref="CommandMap"/> on a context.</summary>
     public static class CommandMapExtensions

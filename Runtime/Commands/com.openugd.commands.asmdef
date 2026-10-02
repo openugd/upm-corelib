@@ -1,0 +1,17 @@
+{
+    "name": "com.openugd.commands",
+    "rootNamespace": "OpenUGD.Commands",
+    "references": [
+        "com.openugd.lifetime",
+        "com.openugd.context"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

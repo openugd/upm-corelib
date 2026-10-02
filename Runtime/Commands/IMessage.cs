@@ -6,9 +6,8 @@
     /// <remarks>
     /// <para>
     /// It exists to constrain the typed entry points — <see cref="IMapCommand.Map{TMessage}"/> and the
-    /// <c>Tell</c> extension in <c>OpenUGD.Services.Commands.CommandMapExtensions</c> — so that a type
-    /// never meant to travel through the command layer is rejected by the compiler rather than routed to
-    /// nothing at runtime.
+    /// <see cref="CommandMapExtensions.Tell"/> extension — so that a type never meant to travel through the
+    /// command layer is rejected by the compiler rather than routed to nothing at runtime.
     /// </para>
     /// <para>
     /// <b>The router itself is untyped.</b> <see cref="ITellMessage.Tell"/> takes <c>object</c>, and

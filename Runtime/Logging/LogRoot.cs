@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace OpenUGD.Core.Logging
+namespace OpenUGD.Logging
 {
     /// <summary>
     /// The root of a logging tree and its fan-out point: every record written through this logger, or
@@ -12,8 +12,8 @@ namespace OpenUGD.Core.Logging
     /// <para>
     /// <b>Nothing is written until a provider is attached.</b> A fresh instance has no subscribers, so
     /// every write is a no-op that still evaluates its argument. Attach the Unity console with
-    /// <see cref="UnityLogSinkExtensions.UseUnityConsole"/>, or your own sink with
-    /// <see cref="Subscribe"/>.
+    /// <c>UnityLogSinkExtensions.UseUnityConsole</c> from the <c>com.openugd.logging.unity</c> assembly, or
+    /// your own sink with <see cref="Subscribe"/>.
     /// </para>
     /// <para>
     /// <b>One gate for the whole tree.</b> A derived logger filters against its own chain of
@@ -124,7 +124,7 @@ namespace OpenUGD.Core.Logging
         /// <remarks>
         /// <b>Changed in 2.0.0.</b> This used to throw <c>NotImplementedException</c>, deliberately: the
         /// argument was that failing loudly beats implying a teardown that does not exist. That argument
-        /// stopped holding when the container underneath changed. <see cref="OpenUGD.Context"/> registers
+        /// stopped holding when the container underneath changed. <c>OpenUGD.Context</c> registers
         /// every constructed service that implements <see cref="IDisposable"/> for disposal when its
         /// lifetime ends, and <see cref="ILog"/> extends <see cref="IDisposable"/> — so a root registered
         /// with <c>Add&lt;LogRoot&gt;()</c> threw while the context was tearing down, turning an ordinary

@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace OpenUGD.Core.Logging
+namespace OpenUGD.Logging
 {
     /// <summary>
     /// An <see cref="ILogSink"/> that writes each record to the Unity console, formatted as

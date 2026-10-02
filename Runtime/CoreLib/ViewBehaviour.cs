@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace OpenUGD.Core.Presenters
+namespace OpenUGD.Presenters
 {
     /// <summary>
     /// A <see cref="MonoBehaviour"/> that owns a <see cref="OpenUGD.Lifetime"/> ending at <c>OnDestroy</c>,
