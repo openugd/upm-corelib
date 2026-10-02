@@ -147,10 +147,18 @@ This is the whole public surface of the package.
 | `ICoroutineProvider`, `CoroutineProvider` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
 | `ISynchronizationContext`, `SynchronizationContextWrapper` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
 | `SignalMonoBehaviour` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
-| `ContextInstanceComponent`, `ContextFactoryInstancesComponent`, `IContextInstanceProvider`, `ContextFactoryInstancesComponentEditor` | `OpenUGD.Core`, `OpenUGD.Core.Editor` | Several game instances, one per display, in one process, and the factory's inspector. |
 
 Composition itself lives in [`com.openugd.context`](https://github.com/openugd/upm-context): `Context`,
 `ContextBuilder`, `ServiceCollection`, `[Inject]`. CoreLib is the Unity boundary around it.
+
+## Samples
+
+Import them from the Package Manager window: select CoreLib, then the Samples tab.
+
+- **Multi Instance** — several game instances in one process, one per display, with input and audio focus
+  switched between them: `ContextInstanceComponent`, `ContextFactoryInstancesComponent` and
+  `IContextInstanceProvider`, which were part of the package in 0.6.x. The scripts keep their 0.6.x GUIDs,
+  so prefabs and scenes that carried them bind to the imported copies. See the sample's README.
 
 ## Not in 2.0.0
 
@@ -166,6 +174,8 @@ Composition itself lives in [`com.openugd.context`](https://github.com/openugd/u
   class that implements `IAwakeService` / `IInitializeService`, as `ProfileService` does above, and a
   `ContextFactoryComponent` subclass derives from `ContextBehaviour`, as `Bootstrap` does. The
   [CHANGELOG](CHANGELOG.md) lists each step of the port.
+- **The multi-display components** `ContextInstanceComponent`, `ContextFactoryInstancesComponent` and
+  `IContextInstanceProvider`. They are the *Multi Instance* sample now; see *Samples* above.
 
 ## Requirements
 

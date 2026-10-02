@@ -1,13 +1,19 @@
 using System;
+#if OPENUGD_UGUI_PACKAGE
 using UnityEngine.EventSystems;
+#endif
 
 namespace OpenUGD.Core
 {
     /// <summary>
-    /// The read-only face of one game instance pinned to one display: which <see cref="EventSystem"/> reads
-    /// its input, which display it draws to, and whether it currently holds focus.
+    /// The read-only face of one game instance pinned to one display: which display it draws to, whether it
+    /// currently holds focus, and which <c>EventSystem</c> reads its input.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <b>Sample code, yours to change.</b> This is the corelib 0.6.x interface, moved out of the package in
+    /// 2.0.0 with its GUID and namespace, so code that consumed it compiles against this copy unchanged.
+    /// </para>
     /// <para>
     /// <b>Read-only on purpose.</b> <see cref="ContextInstanceComponent"/> implements this and also exposes
     /// <c>Select</c> and <c>Unselect</c>; neither appears here. A consumer observes focus, it does not grant
@@ -17,31 +23,33 @@ namespace OpenUGD.Core
     /// </para>
     /// <para>
     /// <b>Why an interface at all.</b> The implementation is a <c>MonoBehaviour</c>. Registering it under
-    /// this contract — <c>Injector.ToValue&lt;IContextInstanceProvider&gt;(component)</c>, one registration
-    /// per instance context — is what keeps everything downstream free of a scene reference. Nothing in
-    /// these packages resolves it; it exists for the game to consume.
+    /// this contract — <c>builder.Services.AddInstance&lt;IContextInstanceProvider&gt;(component)</c>, one
+    /// registration per instance context, as <see cref="InstanceContextExample"/> does — is what keeps
+    /// everything downstream free of a scene reference.
     /// </para>
     /// </remarks>
     public interface IContextInstanceProvider
     {
+#if OPENUGD_UGUI_PACKAGE
         /// <summary>
         /// The event system that serves this instance. Enabled only while <see cref="IsSelected"/> is
-        /// <c>true</c>.
+        /// <c>true</c>. Exists only when the project has <c>com.unity.ugui</c>.
         /// </summary>
         /// <remarks>
         /// Do not toggle <c>enabled</c> on it yourself: the next select or unselect overwrites the flag
         /// without consulting you. Change focus instead, and this follows.
         /// </remarks>
         EventSystem EventSystem { get; }
+#endif
 
         /// <summary>
         /// The zero-based Unity display index this instance renders to, matching its position in the
         /// factory's instance list.
         /// </summary>
         /// <remarks>
-        /// Assigned when the instance is created, and never rewritten afterwards by anything in these
-        /// packages. Nothing acts on it either — no camera, canvas or raycaster is retargeted for you.
-        /// Read it and point your own scene objects at <c>UnityEngine.Display</c>.
+        /// Assigned when the instance is created, and never rewritten afterwards by anything in this sample.
+        /// Nothing acts on it either — no camera, canvas or raycaster is retargeted for you. Read it and point
+        /// your own scene objects at <c>UnityEngine.Display</c>.
         /// </remarks>
         int TargetDisplay { get; }
 
@@ -75,6 +83,9 @@ namespace OpenUGD.Core
         /// <param name="lifetime">The <i>subscriber's</i> scope, not the provider's.</param>
         /// <param name="listener">Invoked after the change, with the new state already visible.</param>
         /// <exception cref="ArgumentNullException">Either argument is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The provider is a component that has not run <c>Awake</c> yet.
+        /// </exception>
         void Subscribe(Lifetime lifetime, Action listener);
     }
 }

@@ -10,7 +10,7 @@
     "email": "dorofiy.kolya@gmail.com",
     "url": "https://github.com/openugd"
   },
-  "description": "Application composition for Unity: contexts, services, presenters and utilities. Provides a context builder that wires services through dependency injection and drives them through an async awake/initialize lifecycle, a widget tree for view composition, and a command mapper for message handling. Ships with logging, resource loading and persistence helpers scoped to a Lifetime.",
+  "description": "The Unity boundary of the OpenUGD family: ContextBehaviour, a MonoBehaviour that boots a com.openugd.context Context and exposes the Unity loop as signals, plus a presenter tree for view composition, a command mapper for message handling, tagged logging with a Unity console sink, and coroutine and SynchronizationContext seams a test can replace.",
   "keywords": [
     "core",
     "lib",
@@ -36,5 +36,12 @@
     "com.openugd.signal": "2.0.0",
     "com.openugd.context": "2.0.0",
     "com.unity.ugui": "2.0.0"
-  }
+  },
+  "samples": [
+    {
+      "displayName": "Multi Instance",
+      "description": "Several game instances in one process, one per display, with input and audio focus switched between them: the 0.6.x ContextInstanceComponent, ContextFactoryInstancesComponent and IContextInstanceProvider, moved out of the package in 2.0.0 and fixed. The scripts keep their 0.6.x GUIDs, so existing prefabs and scenes bind to them after the import.",
+      "path": "Samples~/MultiInstance"
+    }
+  ]
 }

@@ -10,16 +10,24 @@ namespace OpenUGD.Core
     /// </summary>
     /// <remarks>
     /// <para>
+    /// <b>Sample code, yours to change.</b> This is the corelib 0.6.x component, moved out of the package in
+    /// 2.0.0. The script keeps its original GUID (<c>cdba43c5badf44d28b2cfdf25807862b</c>), its namespace and
+    /// its serialized field names, and the class is not sealed, so a scene that carried the 0.6.x component
+    /// binds to this copy and an empty <c>GameFactoryComponent : ContextFactoryInstancesComponent</c>
+    /// subclass compiles unchanged.
+    /// </para>
+    /// <para>
     /// <b>Boot.</b> <c>Awake</c> marks this component's own <c>GameObject</c> <c>DontDestroyOnLoad</c> and
     /// then builds <see cref="Count"/> instances, selecting instance <c>0</c> and unselecting the rest, so
     /// exactly one instance has focus from the first frame.
     /// </para>
     /// <para>
-    /// <b>The instances are not marked <c>DontDestroyOnLoad</c>.</b> Only this component is. The clones are
-    /// created into the active scene, so a scene load destroys them while the factory survives. Nothing
-    /// prunes the tracking list when that happens — <see cref="Selected"/> keeps reporting the index the
-    /// destroyed instance last had, and <see cref="Select"/> reaches for components that are gone — so
-    /// call <see cref="Rebuild"/> afterwards.
+    /// <b>The instances live exactly as long as the factory.</b> Each clone is marked
+    /// <c>DontDestroyOnLoad</c> as it is created, like the factory itself, so a scene load destroys neither
+    /// and the tracking list stays truthful; destroying the factory destroys its instances. The 0.6.x
+    /// component marked only itself, so a scene load destroyed the instances under a factory that survived
+    /// with a list of dead components. An instance destroyed by something other than this factory still
+    /// leaves a dead entry behind: call <see cref="Rebuild"/> afterwards.
     /// </para>
     /// <para>
     /// <b>It writes to the prefab, not to a copy.</b> <see cref="Rebuild"/> assigns
@@ -27,6 +35,11 @@ namespace OpenUGD.Core
     /// <c>Instantiate</c> so the clone is born knowing its display, and restores it to <c>0</c> in a
     /// <c>finally</c>. That <c>finally</c> is what keeps a failed rebuild from leaving the asset carrying
     /// the last index it happened to reach.
+    /// </para>
+    /// <para>
+    /// <b>Displays.</b> Nothing here calls <c>Display.Activate</c>. In a player, every display but the
+    /// primary one stays off until the game activates it; in the editor, the Game view's Display menu shows
+    /// each one.
     /// </para>
     /// </remarks>
     public class ContextFactoryInstancesComponent : MonoBehaviour
@@ -36,8 +49,9 @@ namespace OpenUGD.Core
         /// </summary>
         /// <remarks>
         /// <see cref="Rebuild"/> dereferences it before the first <c>Instantiate</c> and again in its
-        /// <c>finally</c>, so leaving it empty fails the rebuild — and therefore <c>Awake</c> — with a
-        /// <see cref="System.NullReferenceException"/>.
+        /// <c>finally</c>, so leaving it empty fails the rebuild — and therefore <c>Awake</c> — with an
+        /// exception (<see cref="UnassignedReferenceException"/> in the editor,
+        /// <see cref="System.NullReferenceException"/> in a player).
         /// </remarks>
         [SerializeField] public ContextInstanceComponent Prefab;
 
@@ -46,10 +60,10 @@ namespace OpenUGD.Core
         /// </summary>
         /// <remarks>
         /// Changing it does nothing on its own — nothing watches this field. Call <see cref="Rebuild"/>, or
-        /// press the Rebuild button this package's inspector adds. The <c>[Range(1, 3)]</c> constrains the
-        /// inspector slider only: code may assign anything, and a value of zero or less simply builds no
-        /// instances, after which <see cref="Selected"/> is <c>-1</c> and <see cref="Select"/> has nothing
-        /// to move focus to.
+        /// press the Rebuild button this sample's inspector adds in play mode. The <c>[Range(1, 3)]</c>
+        /// constrains the inspector slider only: code may assign anything, and a value of zero or less simply
+        /// builds no instances, after which <see cref="Selected"/> is <c>-1</c> and <see cref="Select"/> has
+        /// nothing to move focus to.
         /// </remarks>
         [Range(1, 3)] [SerializeField] public int Count = 2;
 
@@ -72,6 +86,10 @@ namespace OpenUGD.Core
             DontDestroyOnLoad(gameObject);
             Rebuild();
         }
+
+        // The instances are DontDestroyOnLoad, so no scene unload will ever collect them: the factory that
+        // made them has to.
+        private void OnDestroy() => DeleteLast();
 
         /// <summary>
         /// Moves focus to instance <paramref name="index"/>: unselects whichever instance currently holds
@@ -125,9 +143,14 @@ namespace OpenUGD.Core
         /// <summary>
         /// Destroys the current instances and creates <see cref="Count"/> fresh ones, selecting instance
         /// <c>0</c> and unselecting the rest. Called from <c>Awake</c>, and from the Rebuild button this
-        /// package's inspector adds.
+        /// sample's inspector adds. Play mode only.
         /// </summary>
         /// <remarks>
+        /// <para>
+        /// <b>Edit mode does nothing but warn.</b> Unity's <c>Destroy</c> may not be called outside play mode,
+        /// and the clones would be created into the open scene and saved with it. The 0.6.x inspector button
+        /// called this in edit mode regardless.
+        /// </para>
         /// <para>
         /// <b>Destruction is deferred, creation is not.</b> The old objects go through Unity's
         /// <c>Destroy</c>, which runs at the end of the frame, while the replacements exist immediately —
@@ -142,11 +165,11 @@ namespace OpenUGD.Core
         /// the new instances; nothing is migrated for you.
         /// </para>
         /// <para>
-        /// Clones are named <c>&lt;prefab&gt;_&lt;index&gt;</c> and carry
-        /// <see cref="ContextInstanceComponent.TargetDisplay"/> equal to their index.
+        /// Clones are named <c>&lt;prefab&gt;_&lt;index&gt;</c>, carry
+        /// <see cref="ContextInstanceComponent.TargetDisplay"/> equal to their index, and are marked
+        /// <c>DontDestroyOnLoad</c>.
         /// </para>
         /// </remarks>
-        /// <exception cref="System.NullReferenceException"><see cref="Prefab"/> is unassigned.</exception>
         /// <exception cref="System.AggregateException">
         /// A focus listener on one of the new instances threw while it was being selected or unselected.
         /// The instances built so far are kept and tracked, the remaining ones are never created, and
@@ -154,6 +177,15 @@ namespace OpenUGD.Core
         /// </exception>
         public void Rebuild()
         {
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning(
+                    "ContextFactoryInstancesComponent.Rebuild() does nothing in Edit mode: Destroy is not " +
+                    "allowed there, and the instances would be saved into the scene. Enter play mode first.",
+                    this);
+                return;
+            }
+
             DeleteLast();
             Create(Count);
         }
@@ -167,6 +199,7 @@ namespace OpenUGD.Core
                     Prefab.TargetDisplay = i;
                     var instance = Instantiate(Prefab);
                     instance.gameObject.name = $"{Prefab.gameObject.name}_{i}";
+                    DontDestroyOnLoad(instance.gameObject);
                     _instances.Add(instance);
                     if (i == 0)
                     {
@@ -190,7 +223,11 @@ namespace OpenUGD.Core
             _instances.Clear();
             foreach (var instance in copy)
             {
-                Destroy(instance.gameObject);
+                // Unity's null: skips an instance something else has already destroyed.
+                if (instance != null)
+                {
+                    Destroy(instance.gameObject);
+                }
             }
         }
     }

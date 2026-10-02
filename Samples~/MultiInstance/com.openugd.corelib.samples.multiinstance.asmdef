@@ -1,0 +1,30 @@
+{
+    "name": "com.openugd.corelib.samples.multiinstance",
+    "rootNamespace": "OpenUGD.Core",
+    "references": [
+        "com.openugd.corelib",
+        "com.openugd.context",
+        "com.openugd.lifetime",
+        "com.openugd.signal"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.unity.modules.audio",
+            "expression": "1.0.0",
+            "define": "OPENUGD_AUDIO_MODULE"
+        },
+        {
+            "name": "com.unity.ugui",
+            "expression": "1.0.0",
+            "define": "OPENUGD_UGUI_PACKAGE"
+        }
+    ],
+    "noEngineReferences": false
+}

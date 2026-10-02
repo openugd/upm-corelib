@@ -114,6 +114,31 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 
 ### Moved
 
+- **Breaking: the multi-display components move out of the package into the *Multi Instance* sample.**
+  `ContextInstanceComponent`, `ContextFactoryInstancesComponent`, `IContextInstanceProvider` and the
+  inspector `ContextFactoryInstancesComponentEditor` are no longer compiled into corelib. Import the
+  sample from the Package Manager to get them back as project code. The copies keep the 0.6.x script
+  GUIDs (`bde234200e4d407696b34ff23b9e6ea2`, `cdba43c5badf44d28b2cfdf25807862b`,
+  `1fc09025e03547a7b692210cd488a0e6`, `bbe59184e52143a9953989764296a74b`), the namespace `OpenUGD.Core`
+  and the serialized field names. Prefabs and scenes that carried the components therefore bind to the
+  copies with no "Missing script", and code that used them compiles unchanged once its assembly can see
+  the sample's `com.openugd.corelib.samples.multiinstance`. The copies fix three defects (audit CC-21,
+  UH-8):
+  - `ContextInstanceComponent` creates its scope in `Awake`, not in a field initializer. An instance that
+    was never activated, and so never received `OnDestroy`, used to leave a `Lifetime` on
+    `Lifetime.Eternal` for the rest of the process. `Subscribe` before `Awake` now throws
+    `InvalidOperationException`.
+  - The factory marks every instance `DontDestroyOnLoad`, as it does itself, and destroys its instances
+    when it is destroyed. A scene load used to destroy the instances under a factory that survived and
+    went on tracking dead components.
+  - `Rebuild` is play mode only, and the inspector's Rebuild button is disabled outside it. The button
+    used to call Unity's `Destroy` in edit mode and create the clones into the open scene.
+
+  The `EventSystem` and `AudioListener` halves are compiled only when the project has `com.unity.ugui`
+  and the built-in Audio module, through `versionDefines` in the sample's assembly definition; the
+  package never declared the Audio module it used. The sample also adds `InstanceContextExample`, a
+  `ContextBehaviour` that registers the instance and copies `TargetDisplay` to the instance's cameras,
+  which is the 2.0 form of the context every consumer wrote by hand.
 - **Breaking: `ValueSubscriber<T>` and `DisposableHandler` are removed, not moved.** Neither had a
   consumer, tests or a settled design. `ValueSubscriber` returns in a later 2.x as a designed
   `ObservableValue<T>`; MIGRATION-2.0 gives a ~25-line replacement over `Signal<T, T>`. `DisposableHandler`
