@@ -101,8 +101,11 @@ entry under *Changed*.
   `.AddToolTipService()`, `.RegisterTooltip<T>()`, and `ServiceCollection.AddCommandMap()` — the
   installers, all `TryAdd`-shaped, so a consumer registration always wins.
 - `Runtime/AssemblyInfo.cs` with `InternalsVisibleTo("com.openugd.corelib.tests")`.
-- An Edit Mode test suite: 46 tests over the presenter tree, the two hooks, the deleted surface, the
-  service open sequence and the command mapper. It needs no Unity runtime.
+- An Edit Mode test suite: 70 tests over the presenter tree, the two hooks, the deleted surface, the
+  service open sequence, the command mapper, the layer seam and the 0.6.x upgrade of
+  `TransformProviderComponent`. All but four run without a Unity runtime; those four carry
+  `[Category("RequiresUnity")]` and load a prefab written in the 0.6.1 layout through the
+  `AssetDatabase`.
 
 ### Changed
 
@@ -131,8 +134,16 @@ entry under *Changed*.
   - `provider.Hud` becomes `provider.Hud()`. C# has no extension properties; that is the whole
     ergonomic cost.
   - `TransformProviderComponent` exposes one ordered list in the inspector instead of eight fields.
-    **Existing scenes must reassign their layers once** — the old serialized fields no longer exist.
-    `Reset` seeds the eight built-in keys as empty rows, and `OnValidate` reports duplicates.
+    Scenes and prefabs saved by 0.6.x are upgraded as they load, with nothing to reassign. `Canvas`,
+    `Camera` and `Pool` are read from their old serialized names through `[FormerlySerializedAs]`.
+    The eight old layer fields become eight rows in their old order — background, hud, window, popup,
+    tooltip, overlay, splash, system — keyed by `UILayers`, each keeping its transform; a field that
+    was never assigned becomes a row with no transform. Rows are added only to an empty list, never
+    over existing ones. The upgrade runs in memory on each load of the old data and becomes permanent
+    once Unity writes the file again: a save after an edit, or `AssetDatabase.ForceReserializeAssets`.
+    Data written by 2.0 carries a format stamp and is never upgraded, so a list emptied on purpose
+    stays empty. `Reset` seeds the eight built-in keys as empty rows, and `OnValidate` reports
+    duplicated keys.
   - The `Func<ITransformProvider, Transform>` selector on `UIWindowComponentProvider` is unchanged.
 - **Breaking: a missing layer now throws `UILayerNotBoundException` instead of parenting to the scene
   root.** `UIHudComponentProvider` and `UITooltipComponentProvider` previously read a `null` layer as
@@ -245,19 +256,20 @@ entry under *Changed*.
   These preserve **source** compatibility only — scene references were never at risk, because a scene
   serializes the `MonoScript` GUID of the concrete subclass, never of an abstract base.
 - `package.json`: version 2.0.0; dependencies are now `com.openugd.lifetime`, `com.openugd.signal`,
-  `com.openugd.context` and `com.unity.ugui`; `com.openugd.dependency.injection` removed; description
-  and keywords rewritten.
-- `com.unity.ugui` is now declared. Four files compile against `UnityEngine.EventSystems`
-  (`ContextInstanceComponent`, `IContextInstanceProvider`, `UITooltipComponent`, `IUITooltip`) and the
-  package declared it nowhere. A fifth, `IgnoreOnPointEnterInputModule`, was deleted.
+  `com.openugd.context` and `com.unity.ugui` 2.0.0; `com.openugd.dependency.injection` removed;
+  description and keywords rewritten.
+- `com.unity.ugui` is now declared, at 2.0.0 — the version built into Unity 6000.0. Four files compile
+  against `UnityEngine.EventSystems` (`ContextInstanceComponent`, `IContextInstanceProvider`,
+  `UITooltipComponent`, `IUITooltip`) and the package declared it nowhere. A fifth,
+  `IgnoreOnPointEnterInputModule`, was deleted.
 - **Licence changed from MIT to Apache-2.0.** The previous `LICENSE` was a mutated MIT whose copyright
   line had been deleted and whose attribution clause was replaced with the literal text "No
   conditions.", which left it legally ambiguous. It is now the verbatim Apache License 2.0 with an
   explicit copyright holder, the file is named `LICENSE.md`, and `package.json` declares
   `"license": "Apache-2.0"`. Apache-2.0 adds an express patent grant and requires that changes to the
   files be stated; releases made before this version remain under their original terms.
-- Minimum supported editor raised to Unity 2022.3 (`unity` / `unityRelease`). Earlier declared minimums
-  (2020.3 / 2021.3) were never verified.
+- Minimum supported editor raised to Unity 6000.0 (`"unity": "6000.0"`, `"unityRelease": "0f1"`).
+  Unity 2022.3 is not supported. Earlier declared minimums (2020.3 / 2021.3) were never verified.
 - Obsolete `category` key removed from `package.json`.
 
 ### Presenters

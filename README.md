@@ -147,8 +147,9 @@ Composition itself lives in [`com.openugd.context`](https://github.com/openugd/u
 
 ## Requirements
 
-- Unity 2022.3 or newer
-- `com.openugd.lifetime`, `com.openugd.signal`, `com.openugd.dependency.injection`
+- Unity 6000.0 or newer
+- `com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context` 2.0.0, and `com.unity.ugui`
+  2.0.0 (built into Unity 6000.0) — all declared in `package.json`
 
 ## Licence
 
