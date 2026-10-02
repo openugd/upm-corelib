@@ -77,10 +77,10 @@ entry under *Changed*.
 
 ### Moved
 
-- **Breaking: `ValueSubscriber<T>` moved to `com.openugd.signal` 2.1.0**, namespace `OpenUGD.Utils` →
-  `OpenUGD`. See that package's changelog for the three changes made on adoption.
-- **Breaking: `DisposableHandler` moved to `com.openugd.lifetime` 2.1.0**, namespace `OpenUGD.Utils` →
-  `OpenUGD`. See that package's changelog.
+- **Breaking: `ValueSubscriber<T>` and `DisposableHandler` are removed, not moved.** Neither had a
+  consumer, tests or a settled design. `ValueSubscriber` returns in a later 2.x as a designed
+  `ObservableValue<T>`; MIGRATION-2.0 gives a ~25-line replacement over `Signal<T, T>`. `DisposableHandler`
+  duplicated `Lifetime.Definition`, which is already an idempotent `IDisposable`.
 
 ### Added
 
