@@ -180,7 +180,7 @@ namespace OpenUGD.Core.Logging
 
         /// <summary>
         /// Attaches a sink. From here on, every record that passes <see cref="Flag"/> is handed to
-        /// <paramref name="logger"/>, in subscription order relative to the other providers.
+        /// <paramref name="sink"/>, in subscription order relative to the other sinks.
         /// </summary>
         /// <remarks>
         /// <para>
