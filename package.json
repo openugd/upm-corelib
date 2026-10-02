@@ -1,19 +1,40 @@
 {
-    "name": "com.openugd.corelib",
-    "displayName": "CoreLib",
-    "version": "0.6.1",
-    "unity": "2021.3",
-    "author": "https://github.com/openugd",
-    "description": "require .NET 4x\n",
-    "keywords": [
-        "core",
-        "lib",
-        "corelib"
-    ],
-    "dependencies": {
-        "com.openugd.lifetime": "1.2.0",
-        "com.openugd.signal": "1.0.0",
-        "com.openugd.dependency.injection": "0.1.0"
-    },
-    "category": "Unity"
+  "name": "com.openugd.corelib",
+  "displayName": "CoreLib",
+  "version": "2.0.0",
+  "license": "Apache-2.0",
+  "unity": "2022.3",
+  "unityRelease": "0f1",
+  "author": {
+    "name": "Mykola Dorofii",
+    "email": "dorofiy.kolya@gmail.com",
+    "url": "https://github.com/openugd"
+  },
+  "description": "Application composition for Unity: contexts, services, presenters and utilities. Provides a context builder that wires services through dependency injection and drives them through an async awake/initialize lifecycle, a widget tree for view composition, and a command mapper for message handling. Ships with logging, resource loading and persistence helpers scoped to a Lifetime.",
+  "keywords": [
+    "core",
+    "lib",
+    "corelib",
+    "context",
+    "services",
+    "presenters",
+    "composition",
+    "dependency-injection",
+    "lifetime",
+    "openugd",
+    "mvp"
+  ],
+  "licensesUrl": "https://github.com/openugd/upm-corelib/blob/master/LICENSE.md",
+  "documentationUrl": "https://github.com/openugd/upm-corelib#readme",
+  "changelogUrl": "https://github.com/openugd/upm-corelib/blob/master/CHANGELOG.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openugd/upm-corelib.git"
+  },
+  "dependencies": {
+    "com.openugd.lifetime": "2.0.0",
+    "com.openugd.signal": "2.0.0",
+    "com.openugd.context": "2.0.0",
+    "com.unity.ugui": "1.0.0"
+  }
 }

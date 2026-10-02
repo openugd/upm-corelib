@@ -1,16 +1,16 @@
-﻿#pragma warning disable CS0649
+#pragma warning disable CS0649
 
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
 using System.Threading.Tasks;
-using OpenUGD.Core.Widgets;
+using OpenUGD.Core.Presenters;
 using OpenUGD.Utils.Components;
 using Assert = UnityEngine.Assertions.Assert;
 
 namespace OpenUGD.Services.UI.Windows
 {
+    /// <summary>The default <see cref="IUIWindowService"/>, its registry and its provider.</summary>
     public class UIWindowService : Service, IUIWindowService, IUIWindowsProvider, IUIWindowsRegister
     {
         private readonly Dictionary<Type, UIWindowFactoryInfo> _maps = new();
@@ -22,8 +22,12 @@ namespace OpenUGD.Services.UI.Windows
 
         [Inject] private IUIWindowsProvider _provider;
 
+        /// <inheritdoc />
         public IEnumerable<UIWindowReference> Queue => _queue;
-        public ReadOnlyCollection<UIWindowReference> Opened => _openedReadOnly ?? (_openedReadOnly = _opened.AsReadOnly());
+
+        /// <inheritdoc />
+        public ReadOnlyCollection<UIWindowReference> Opened =>
+            _openedReadOnly ?? (_openedReadOnly = _opened.AsReadOnly());
 
         UIWindowFactoryInfo IUIWindowsProvider.Get(Type type) => _maps[type];
 
@@ -35,11 +39,12 @@ namespace OpenUGD.Services.UI.Windows
             lifetime.AddAction(() => _maps.Remove(type));
         }
 
-        public UIWindowReference Open(Type type, Action<Widget> onOpen, object model)
+        /// <inheritdoc />
+        public UIWindowReference Open(Type type, Action<Presenter> onOpen, object model)
         {
-            if (!type.IsSubclassOf(typeof(Widget)))
+            if (!type.IsSubclassOf(typeof(Presenter)))
             {
-                throw new ArgumentException($"{nameof(type)} is not subclass of {typeof(Widget)}");
+                throw new ArgumentException($"{nameof(type)} is not subclass of {typeof(Presenter)}");
             }
 
             var factoryInfo = _provider.Get(type);
@@ -55,26 +60,29 @@ namespace OpenUGD.Services.UI.Windows
             return reference;
         }
 
+        /// <inheritdoc />
         public void Subscribe(Lifetime lifetime, Action<Type, UIWindowActionType> listener) =>
             _onChanged.Subscribe(lifetime, listener);
 
+        /// <inheritdoc />
         protected override Task OnAwake()
         {
             _onChanged = new Signal<Type, UIWindowActionType>(Lifetime);
             return base.OnAwake();
         }
 
-        private void Enqueue(Type type, Action<Widget> onOpen, UIWindowContext context, object model)
+        private void Enqueue(Type type, Action<Presenter> onOpen, UIWindowContext windowContext, object model)
         {
-            var definition = context.Definition;
-            context.Factory = callback => {
+            var definition = windowContext.Definition;
+            windowContext.Factory = callback => {
                 var factoryInfo = _provider.Get(type);
-                var injector = factoryInfo.Options.Injector;
-                var provider = factoryInfo.Options.Provider();
-                injector.Inject(provider);
-                var widget = (Widget)injector.Resolve(type);
-                var viewType = widget.GetViewType();
-                provider.Provide(definition.Lifetime, factoryInfo.Options, viewType,
+                var options = factoryInfo.Options;
+                var context = options.Context;
+                var provider = options.Provider();
+                context.Inject(provider);
+                var presenter = (Presenter)context.Instantiate(type);
+                var viewType = presenter.GetViewType();
+                provider.Provide(definition.Lifetime, options, viewType,
                     providerContext => {
                         var view = providerContext.Component;
 
@@ -87,21 +95,20 @@ namespace OpenUGD.Services.UI.Windows
                         signal.DestroySignal.Subscribe(definition.Lifetime, definition.Terminate);
 
                         definition.Lifetime.AddAction(() => {
-                            //Widget.Internal.Close(mediator);
-                            _opened.Remove(context.Reference);
+                            _opened.Remove(windowContext.Reference);
                             providerContext.Dispose();
                             _onChanged.Fire(type, UIWindowActionType.Closed);
-                            context.Reference.Widget = null;
+                            windowContext.Reference.Presenter = null;
                         });
 
-                        _opened.Add(context.Reference);
-                        context.Reference.Widget = widget;
+                        _opened.Add(windowContext.Reference);
+                        windowContext.Reference.Presenter = presenter;
 
-                        Widget.Internal.Initialize(injector, widget, definition);
+                        Presenter.Internal.Initialize(context, presenter, definition);
 
                         if (!definition.IsTerminated)
                         {
-                            var mediatorModel = widget as IWidgetWithModel;
+                            var mediatorModel = presenter as IPresenterWithModel;
                             if (model != null)
                             {
                                 Assert.IsNotNull(mediatorModel);
@@ -110,31 +117,32 @@ namespace OpenUGD.Services.UI.Windows
 
                             if (!definition.IsTerminated)
                             {
-                                var mediatorView = (IWidgetWithView)widget;
+                                // Attaching the view is what runs OnViewAdded and then the first
+                                // OnRefresh. There is nothing left to push afterwards, which is why
+                                // the Presenter.Internal.Ready(presenter) call that stood here is gone
+                                // rather than replaced.
+                                var mediatorView = (IPresenterWithView)presenter;
                                 var viewComponent = view.GetType() != mediatorView.ViewType
                                     ? view.GetComponent(mediatorView.ViewType)
                                     : view;
                                 mediatorView.SetView(viewComponent);
 
-                                Widget.Internal.Ready(widget);
-                                if (!definition.IsTerminated)
+                                if (!definition.IsTerminated && onOpen != null)
                                 {
-                                    if (onOpen != null)
-                                    {
-                                        onOpen(widget);
-                                    }
+                                    onOpen(presenter);
                                 }
                             }
                         }
+
                         _onChanged.Fire(type, UIWindowActionType.Opened);
 
                         callback();
                     });
             };
-            
-            _queue.AddLast(context.Reference);
-            definition.Lifetime.AddAction(() => { _queue.Remove(context.Reference); });
-            context.Factory(() => { });
+
+            _queue.AddLast(windowContext.Reference);
+            definition.Lifetime.AddAction(() => { _queue.Remove(windowContext.Reference); });
+            windowContext.Factory(() => { });
         }
 
         private class UIWindowContext

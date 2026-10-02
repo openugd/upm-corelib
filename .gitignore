@@ -1,1 +1,32 @@
 .DS_Store
+
+# OS / editor cruft
+Thumbs.db
+*.swp
+.idea/
+.vs/
+.vscode/
+
+# Unity build output that must never live inside a package
+Library/
+Temp/
+Obj/
+Build/
+Builds/
+Logs/
+UserSettings/
+
+# Generated solution / project files
+*.csproj
+*.sln
+*.user
+*.userprefs
+*.unityproj
+*.pidb
+*.booproj
+*.svd
+*.suo
+
+# Packed package artifacts
+*.tgz
+*.unitypackage

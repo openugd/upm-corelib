@@ -2,7 +2,9 @@
     "name": "com.openugd.corelib.editor",
     "rootNamespace": "OpenUGD",
     "references": [
-        "com.openugd.corelib"
+        "com.openugd.corelib",
+        "com.openugd.context",
+        "com.openugd.lifetime"
     ],
     "includePlatforms": [
         "Editor"

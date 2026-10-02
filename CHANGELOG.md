@@ -1,2 +1,314 @@
 # Changelog
 ### corelib
+
+All notable changes to this package are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [2.0.0] - 2026-07-31
+
+CoreLib is now the Unity boundary for `com.openugd.context` plus the utilities that go with it, and
+nothing else. The composition layer it used to own is gone: `com.openugd.context` 2.0.0 does that job,
+validates the whole graph before constructing anything, and is covered by 149 tests. Read this whole
+section before upgrading — most of it is breaking, and every break is named so you can tell whether it
+reaches you. The headline break is the rename of `Widget` to `Presenter`; it is the first
+entry under *Changed*.
+
+### Removed
+
+- **Breaking: `com.openugd.dependency.injection` is no longer a dependency.** It is removed from
+  `package.json` and from the runtime asmdef. Nothing in corelib references `IInjector`, `IInject`,
+  `IResolve`, `OpenUGD.Resolvers` or `OpenUGD.Descriptions` any more. If your code obtained an injector
+  *through* a corelib type, take a `Context` instead.
+- **Breaking: the whole composition layer.** `Runtime/Core/ContextBuilder/` in its entirety —
+  `IContextSetup`, `IContextServiceSetup`, `IContextBuilder`/`IContextServiceBuilder`,
+  `ContextServiceBuilder`, `ContextServiceRegisterImpl`, `IServiceRegister`, `IServiceResolver`,
+  `ServiceResolver`, `ServiceResolverExtensions`, `ContextServiceBuilderOptions`,
+  `ContextServiceInitializationStrategy`, `ContextStartup`, `IServicesObserverRegister`,
+  `UnityDebugServiceObserver` — plus `OpenUGD.Core.Context`, `OpenUGD.Core.IContext`,
+  `IInjectorProvider` and the editor drawer `UnityDebugServiceObserverEditor`. Replaced by
+  `OpenUGD.Context` / `OpenUGD.ContextBuilder` / `OpenUGD.ServiceCollection`. This subsumes the
+  previously noted removal of the public `ContextServiceRegisterImpl(IInjector)` constructor, which
+  never assigned `_options` and would have thrown `NullReferenceException` on every path that read
+  `_options.InitializationStrategy`; it had zero call sites and existed only as a trap.
+- **Breaking: `OpenUGD.Core.ILoggerProvider`.** It collided by name with
+  `OpenUGD.Core.Loggers.ILoggerProvider` and was already unreachable — both `UnityLoggerProvider` and
+  `LoggerGlobal` bind to the `Loggers` one, because that is the namespace they lived in. That
+  namespace is now `OpenUGD.Core.Logging` — see *Changed*.
+- **Breaking: `OpenUGD.Core.ILifetimeProvider`.** `OpenUGD.ILifetimeProvider`, from the context
+  package, replaces it. `Context` already implements it.
+- **Breaking: `ServiceState`, `Service.State` and the public `Service.Internal` class.** The state
+  machine validated an ordering the caller could get wrong; the new pipeline runs the phases itself, so
+  there is no ordering left to validate. Its two `async void` completion checks went with it — an
+  exception from either could not be caught by anything and took the process down.
+- **Breaking: `Service` no longer implements `IResolve`,** and `IUIWindowService` no longer implements
+  `IResolve`. A window service that is also a service locator is the thing this reset exists to remove.
+  Ask the `Context`.
+- **Breaking: `Widget.OnReady`, `Widget.Internal.Ready`, `ISubscribeNotify`,
+  `IWidgetWithModel.ModelChanged`, `IWidgetWithView<TView>`, `IWidgetWithView.View`,
+  `IWidgetWithView.OnViewAdded` / `.OnViewBeforeRemove` / `.OnViewAfterRemoved`,
+  `IWidgetWithModel.Model` / `.OnBeforeModelChange` / `.OnAfterModelChanged`, and
+  `Widget<TView>.OnViewBeforeRemove`.** See *Presenters* below. The four view/model interfaces go from 14
+  members to 4.
+- **Breaking: `Widget<TView, TModel>.OnAfterModelChanged`, with no shim.** Move the body to
+  `OnRefresh`, which now runs on a view attach as well as on a model change and always with a live
+  view — so the hand-written `View != null` guard goes away too. A shim was considered and rejected: it
+  would have to be invoked from an overridable `OnRefresh`, so any subclass overriding `OnRefresh`
+  without calling `base` would silently stop rendering.
+- **Breaking: `SignalMonoBehaviour.UpdateSignal`, `.LateUpdateSignal`, `.FixedUpdateSignal` and
+  `.AwakeSignal`.** Unity dispatches a per-frame message to every component that merely *defines*
+  `Update`, subscribers or not, and the three UI services attach one of these to every window, HUD
+  element and tooltip — three engine dispatches per view per frame for nothing. `AwakeSignal` could
+  never reach a subscriber: `AddComponent` runs `Awake` before it returns the reference you would
+  subscribe through.
+- **Breaking: 17 utility files.** `ArrayUtils`, `RectExtension`, `NumberConversionUtils`, `TimeFormat`,
+  `Persist`, `IPersistProvider`, `PersistValueSubscriber`, `ResourceManager`, `ResourceBatchLoader`,
+  `KeepReference`, `MethodInvoker`, `MethodAttributeUtil`, `FitOrthographicComponent`,
+  `FillOrthographicComponent`, `SpriteRendererFillOrthographicComponent`,
+  `IgnoreOnPointEnterInputModule`, `IgnoreOnPointerEnter`. Verified by type name, by extension-method
+  name and by `.meta` GUID against every scene, prefab, asset and controller in the repository: none has
+  a caller or a serialized reference. `MethodInvoker`/`MethodAttributeUtil` were also the only
+  reflective-invocation code in the package.
+- **Breaking: `Runtime/Services/UI/IUIContextServiceSetup.cs`** (`IUIContextServiceSetup`,
+  `IUIContextServiceBuilder`). Every base type it named is deleted above.
+
+### Moved
+
+- **Breaking: `ValueSubscriber<T>` moved to `com.openugd.signal` 2.1.0**, namespace `OpenUGD.Utils` →
+  `OpenUGD`. See that package's changelog for the three changes made on adoption.
+- **Breaking: `DisposableHandler` moved to `com.openugd.lifetime` 2.1.0**, namespace `OpenUGD.Utils` →
+  `OpenUGD`. See that package's changelog.
+
+### Added
+
+- `ContextBehaviour` — the replacement for `ContextFactoryComponent`. Same six signals, same
+  `DontDestroyOnLoad`, same `[ContextMenu("Rebuild")]`, but the boot is now `Task Startup`: owned,
+  awaitable and observable. A failure reaches `OnStartFailed` *and* faults `Startup` instead of
+  vanishing into a discarded task, and an integration test can `await behaviour.Startup` and see the
+  real exception. `Context` is `null` until the boot completes. Implements `ICoroutineProvider`.
+- `ContextBehaviourEditor` — shows `Startup.Status`, the failure message if it faulted, and whether
+  `Context` is built. Before 2.0.0 a context that failed to start looked identical in the inspector to
+  one that started fine.
+- `Presenter<TView>.OnRefresh()` and `Presenter<TView>.Refresh()` — see *Presenters*.
+- `Presenter.Context`, so a presenter can reach the container it was injected from.
+- `PresenterExtensions.GetChildren(...)` — the two `Presenter.GetChildren` instance methods became
+  extension methods. Call sites are unchanged as long as `OpenUGD.Core.Presenters` is imported.
+- `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
+- `ContextBuilder.AddWindowsService()`, `.AddWindow<T>()`, `.AddHudService()`, `.AddHud<T>()`,
+  `.AddToolTipService()`, `.RegisterTooltip<T>()`, and `ServiceCollection.AddCommandMap()` — the
+  installers, all `TryAdd`-shaped, so a consumer registration always wins.
+- `Runtime/AssemblyInfo.cs` with `InternalsVisibleTo("com.openugd.corelib.tests")`.
+- An Edit Mode test suite: 46 tests over the presenter tree, the two hooks, the deleted surface, the
+  service open sequence and the command mapper. It needs no Unity runtime.
+
+### Changed
+
+- **Breaking: `ITransformProvider` layers are an open-ended keyed list instead of eight fixed
+  properties.** The interface goes from eleven members to four: `Canvas`, `Camera`, `Pool`, plus
+  `Layers` and `TryGetLayer(key, out layer)`.
+
+  The eight names are now extension methods over `TryGetLayer` in `TransformProviderExtensions`, with
+  their keys as `const string` in `UILayers`. Nothing about them is privileged — a project or a
+  third-party package declares a layer the same way, which was impossible before: an extension method
+  has nowhere to store a transform, so a ninth layer meant editing the interface and breaking every
+  implementation.
+
+  ```csharp
+  public static class MinimapLayer
+  {
+      public const string Key = "minimap";
+      public static RectTransform Minimap(this ITransformProvider provider) => provider.Layer(Key);
+  }
+  ```
+
+  Five of the old eight — `Background`, `Popup`, `Overlay`, `Splash`, `System` — had no caller
+  anywhere. They were not an extension point; they were spare slots shipped in the hope that eight
+  would be enough. They survive as keys and accessors, but a scene that binds none of them is valid.
+
+  - `provider.Hud` becomes `provider.Hud()`. C# has no extension properties; that is the whole
+    ergonomic cost.
+  - `TransformProviderComponent` exposes one ordered list in the inspector instead of eight fields.
+    **Existing scenes must reassign their layers once** — the old serialized fields no longer exist.
+    `Reset` seeds the eight built-in keys as empty rows, and `OnValidate` reports duplicates.
+  - The `Func<ITransformProvider, Transform>` selector on `UIWindowComponentProvider` is unchanged.
+- **Breaking: a missing layer now throws `UILayerNotBoundException` instead of parenting to the scene
+  root.** `UIHudComponentProvider` and `UITooltipComponentProvider` previously read a `null` layer as
+  "scene root", instantiated there and called `DontDestroyOnLoad` on the view — so a layer forgotten in
+  the scene surfaced as interface drawn in the wrong place that also outlived every scene load, never
+  as an error where the mistake was. The exception names the key and lists what the provider does bind.
+  `UIWindowComponentProvider` keeps the `null`-parent branch, because there the parent comes from a
+  caller-supplied selector and returning `null` can be a deliberate choice.
+
+
+- **Breaking: the logging types are renamed, and the namespace `OpenUGD.Core.Loggers` becomes
+  `OpenUGD.Core.Logging`.** `Logger` collided with `UnityEngine.Logger`, so every file with both
+  `using UnityEngine;` and `using OpenUGD.Core.Loggers;` failed to compile with CS0104 — this
+  repository's own `ProjectContext.cs` carried a `using Logger = OpenUGD.Core.Loggers.Logger;` alias to
+  work around it. `Logger` was also an *interface* declared without the `I` prefix.
+
+  | was | is | why |
+  | --- | --- | --- |
+  | `Logger` (interface) | `ILog` | collides with `UnityEngine.Logger`; `ILogger` is taken by Unity too |
+  | `ILoggerProvider` | `ILogSink` | it provides nothing — it receives records; also collides with `Microsoft.Extensions.Logging` |
+  | `LoggerFlag` | `LogFlags` | a `[Flags]` set, not an ordered level |
+  | `LoggerGlobal` | `LogRoot` | the root channel that owns the sinks and hands out tagged children |
+  | `UnityLoggerProvider` | `UnityLogSink` | matches `ILogSink` |
+  | `UseUnityLogger(...)` | `UseUnityConsole(...)` | says where the records actually go |
+  | `Service.Logger` | `Service.Log` | |
+
+
+- **Breaking: `Widget` is renamed `Presenter`, and the namespace `OpenUGD.Core.Widgets` is renamed
+  `OpenUGD.Core.Presenters`.** The type is handed its view and never creates one — it is checked: all
+  20 `SetView` call sites pass a view in, and the UI services that instantiate a prefab then call
+  `SetView` on the presenter. Receiving the view rather than building it is what distinguishes a
+  presenter (MVP, passive view) from a widget, which in every other UI framework *is* the view. The
+  old name also made `Widget<Button, Action>` read as a widget wrapping a widget.
+  - `Widget`, `Widget<TView>`, `Widget<TView, TModel>` -> `Presenter`, `Presenter<TView>`,
+    `Presenter<TView, TModel>`
+  - `Widget.Root` -> `Presenter.Root`; `AddWidget` -> `AddPresenter`
+  - `IWidgetWithView` / `IWidgetWithModel` -> `IPresenterWithView` / `IPresenterWithModel`
+  - `WidgetView` -> `ViewBehaviour` — it is a view, and `PresenterView` would have implied otherwise
+  - `WidgetExtensions` -> `PresenterExtensions`; `UITooltipWidget` -> `UITooltipPresenter`
+
+  There are no `[Obsolete]` forwarding types: at this boundary the base class, the lifecycle hooks and
+  the whole DI layer change together, so affected code cannot compile regardless.
+
+
+- **`Presenter<TView>` puts no constraint on `TView`, and there is no `IWidgetView`.** An interface
+  demanding that every view answer for its own liveness was designed and abandoned: `UnityEngine.UI.Button`
+  cannot implement an interface of ours, so the constraint cut off every leaf presenter over a Unity
+  component — which is the whole of `com.openugd.corelib.widgets`. A `where TView : Component`
+  constraint was rejected for the opposite reason: it drags Unity into the layer and makes a plain
+  test double impossible. Liveness is a property of the presenter's own scope instead. Whoever creates
+  a view ties the presenter's `Lifetime` to that view's destruction — `ViewBehaviour` terminates in
+  `OnDestroy` — and `Refresh()` is skipped once the lifetime has ended.
+- **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, Context)`.**
+- **Breaking: `Presenter.Internal.Initialize` takes a `Context`, has no `beforeInitialization` parameter,
+  and throws if the lifetime it is handed has already terminated.** The three UI services now check
+  `IsTerminated` at the top of the provider callback and skip the whole open.
+- **Breaking: `Presenter.Children` is `IReadOnlyList<Presenter>` (a live view), not an array (a fresh
+  one per call).** Do not hold it across anything that can close a presenter; use
+  `PresenterExtensions.GetChildren` for a snapshot.
+- `PresenterExtensions.GetChildren<T>(recursively: true)` is now plain depth-first. The old order emitted
+  all matching direct children and only then recursed. There was no caller and the order was
+  undocumented, so the simpler one is now the documented one.
+- **Breaking: `ICommandMapper.RegisterCommand(Func<Lifetime, ICommand>, bool)` is now
+  `RegisterCommand(Type, bool)`.** A command is described by its type and built with
+  `Context.Instantiate`, which offers the message, the registration's `Lifetime.Definition` and its
+  `Lifetime` as constructor arguments and resolves the rest. `Map<Msg>().RegisterCommand(l => new
+  BuyCommand())` becomes `Map<Msg>().RegisterCommand<BuyCommand>()`, and a message that arrived on an
+  `[Inject]` field becomes a constructor parameter. It has to change: the factory form cannot receive
+  the message except through the container mutation that was the defect. The consolation is that
+  `ICommandMapperRemove` — declared since 0.6.1 and implemented by nothing, because a factory delegate
+  is not a key — is now implemented by `CommandMapper`.
+- **Breaking: `CommandMap(Lifetime, IInjector)` → `CommandMap(Lifetime, Context)`;
+  `CommandMapper(Lifetime, Type, IInjector)` → `CommandMapper(Lifetime, Type, Context)`.**
+- **Breaking: the UI installers hang off `ContextBuilder`, not `IUIContextServiceSetup`.**
+  `AddWindow<T>` / `AddHud<T>` / `RegisterTooltip<T>` reach into the *constructed* service's registry,
+  and nothing is constructed while a `ServiceCollection` is being filled — so the registration is
+  deferred to a `BootPhase.Configure` initializer: after every `AwakeAsync`, before any
+  `InitializeAsync` that might open a window.
+- **Breaking: `Options.SetInjector` / `Options.Injector` are now `SetContext` / `Context`**, and the
+  dictionary key changed from `"Injector"` to `"Context"`. Same on `HudOptions` and `WindowOptions`.
+- **Breaking: `Logger`'s six write methods take `object` instead of `dynamic`.** Source-compatible at
+  every call site — a `dynamic` parameter is already `object` plus `[Dynamic]` in IL — and at every
+  implementation, since `LoggerGlobal` and its nested `LoggerImpl` (now `LogRoot` and `TaggedLog`)
+  *already* declared `object`. What it
+  removes is the obligation: `dynamic` forced a `Microsoft.CSharp` reference on every implementing
+  assembly, and an implementer that actually used the parameter dynamically would have built a call
+  site and thrown `ExecutionEngineException` under IL2CPP on device. Nothing here did — but the trap
+  was loaded and pointed at the log, which is where a failure is least likely to be noticed.
+- **Breaking: `ICoroutineProvider.StartCoroutine` must never return `null`** — an implementation that
+  cannot start the coroutine throws. `CoroutineProvider` used to return `null` for an inactive host, so
+  the scheduled work simply never ran and nothing said so.
+- `CoroutineProvider` checks `isActiveAndEnabled` instead of `gameObject.activeSelf`, rejects a null or
+  destroyed host in the constructor, and is `sealed`. The old check read only the host's own flag and
+  ignored its parents, so a host under a deactivated parent passed and then threw from inside Unity.
+- `SynchronizationContextWrapper` rejects a `null` context. `SynchronizationContext.Current` is `null`
+  on any thread with no installed context; the null used to be stored and every later `Send`/`Post`
+  threw `NullReferenceException` far from the cause.
+- `Service.Logger` is resolved lazily from the `Context` and throws, naming the fix, when no `Logger` is
+  registered. It used to be handed in by the builder; it is now an ordinary registration, and its
+  absence must not silently yield `null`.
+- `Service` exposes `protected Resolve<T>()` for the common case. Its `Context` itself stays private:
+  `Service` is `[Obsolete]` and slated for removal, so it does not gain surface. A subclass that needs
+  `TryResolve`, `Instantiate` or `Inject` declares its own `[Inject] private Context _context;` — or,
+  better, stops deriving from `Service` and implements `IAwakeService` / `IInitializeService`.
+- `Service.OnAwake` / `OnInitialize` returning a `null` Task now throws with the type's name, instead of
+  stopping the boot with a `NullReferenceException` that names nothing.
+- `ContextFactoryComponent` and `ContextFactoryComponent<T>` are `[Obsolete]` shims over
+  `ContextBehaviour` and are removed in the next release. `ContextFactoryComponent<T>`'s constraint
+  relaxes from `where T : IContext` to `where T : class`, the constraint's type having been deleted.
+  These preserve **source** compatibility only — scene references were never at risk, because a scene
+  serializes the `MonoScript` GUID of the concrete subclass, never of an abstract base.
+- `package.json`: version 2.0.0; dependencies are now `com.openugd.lifetime`, `com.openugd.signal`,
+  `com.openugd.context` and `com.unity.ugui`; `com.openugd.dependency.injection` removed; description
+  and keywords rewritten.
+- `com.unity.ugui` is now declared. Four files compile against `UnityEngine.EventSystems`
+  (`ContextInstanceComponent`, `IContextInstanceProvider`, `UITooltipComponent`, `IUITooltip`) and the
+  package declared it nowhere. A fifth, `IgnoreOnPointEnterInputModule`, was deleted.
+- **Licence changed from MIT to Apache-2.0.** The previous `LICENSE` was a mutated MIT whose copyright
+  line had been deleted and whose attribution clause was replaced with the literal text "No
+  conditions.", which left it legally ambiguous. It is now the verbatim Apache License 2.0 with an
+  explicit copyright holder, the file is named `LICENSE.md`, and `package.json` declares
+  `"license": "Apache-2.0"`. Apache-2.0 adds an express patent grant and requires that changes to the
+  files be stated; releases made before this version remain under their original terms.
+- Minimum supported editor raised to Unity 2022.3 (`unity` / `unityRelease`). Earlier declared minimums
+  (2020.3 / 2021.3) were never verified.
+- Obsolete `category` key removed from `package.json`.
+
+### Presenters
+
+`OnReady` was **two mechanisms that disagreed**. A child added through `AddWidget` got a latch waiting
+for both a view and a model; a widget opened by one of the three UI services got a direct
+`Widget.Internal.Ready(...)` push that never looked at the model; `Widget.Root` got neither, so its
+`OnReady` never fired at all. Which of the three you got depended on how the widget happened to be
+created — the exact shape of "keeps running while doing the wrong thing". The widgets showed what was
+actually wanted: `SliderFloatWidget` wrote the same render logic twice, in `OnAfterModelChanged` and
+again in `OnReady`, because neither hook alone guaranteed both halves; `ImageWidget.OnReady() =>
+View.sprite = Model` set the sprite once and never updated it.
+
+It is replaced by two hooks split by responsibility rather than by time:
+
+- **`OnViewAdded`** runs once each time a view is attached, with `View` already set. Wiring goes here:
+  event listeners, subscriptions, anything registered on the presenter's `Lifetime`. It is the "connect
+  this view" hook, and it runs exactly as many times as a view is attached.
+- **`OnRefresh`** renders the current model into the current view, and must be idempotent. It runs on
+  every `SetModel` and on every explicit `Refresh()`, and it runs only while the presenter is live — a
+  presenter with no view, or whose `Lifetime` has terminated, is skipped rather than guarded at every
+  call site.
+
+Neither hook waits for the other. A presenter with a view and no model renders its empty state; a
+presenter with a model and no view renders nothing and renders correctly as soon as a view arrives.
+That is what the latch was trying and failing to express.
+
+`OnAfterModelChanged` is gone with `OnReady`, and there is no `[Obsolete]` shim for either. A shim was
+written and rejected: it would have had to be called from the overridable `OnRefresh`, so a subclass
+that forgot `base.OnRefresh()` would have silently stopped rendering — a worse failure than a compile
+error, and invisible until someone looked at the screen.
+
+`ISubscribeNotify`, `Widget.Internal.Ready` and the per-widget notification `Signal` that existed only
+to drive `OnReady` are gone with it.
+
+Note that the type names above are the 1.x ones. `Widget` is now `Presenter` throughout — see the
+rename entry near the top of this section for the full table.
+
+### Fixed
+
+- **`LogRoot.Dispose()` no longer throws.** It used to throw `NotImplementedException` on purpose: the
+  argument was that failing loudly beats implying a teardown that does not exist. That argument stopped
+  holding once the container underneath changed. `Context` registers every constructed service that
+  implements `IDisposable` for disposal when its lifetime ends, and `ILog` extends `IDisposable` — so a
+  root registered with `Add<LogRoot>()` threw *while the context was tearing down*, turning an ordinary
+  shutdown into a failure, in the one place a failure is least likely to be noticed. `Dispose` now
+  detaches every sink, which is a real teardown, and is safe to call twice.
+
+
+- `SliderIntWidget` ignored range changes after the first render: it updated `value` on a model change
+  but never `minValue` / `maxValue`, because the range was written only in `OnReady`. Merging the two
+  duplicated render bodies into one `OnRefresh` fixed it.
+- `ImageWidget` set `View.sprite` once and never again. Same cause, same fix.
+

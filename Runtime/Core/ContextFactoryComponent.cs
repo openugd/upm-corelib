@@ -1,75 +1,73 @@
-using OpenUGD.Utils;
-using UnityEngine;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace OpenUGD.Core
 {
-    public abstract class ContextFactoryComponent : MonoBehaviour, ICoroutineProvider
+    /// <summary>
+    /// Compatibility shim for the pre-2.0.0 <c>ContextFactoryComponent</c>, whose boot was a synchronous
+    /// <c>CreateContext()</c> whose failures could not be observed. Derive from
+    /// <see cref="ContextBehaviour"/> instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It keeps the old seam compiling for one release: everything a subclass overrode still exists and still
+    /// runs at the same moment. What it cannot restore is the reason for the rewrite — a synchronous
+    /// <c>CreateContext()</c> has nowhere to put a failure, so a subclass that throws still reaches
+    /// <c>OnStartFailed</c>, but a subclass that discards its own boot task still loses its failures. That is
+    /// fixed by moving to <see cref="ContextBehaviour.CreateContextAsync"/>, not by this type.
+    /// </para>
+    /// <para>
+    /// <see cref="ContextBehaviour.Context"/> on this path is a real but <b>empty</b> context, scoped to
+    /// <see cref="ContextBehaviour.Lifetime"/>. The pre-2.0.0 context object is whatever
+    /// <c>CreateContext()</c> made, and the container knows nothing about it.
+    /// </para>
+    /// </remarks>
+    [Obsolete("Derive from ContextBehaviour and override CreateContextAsync. " +
+              "ContextFactoryComponent is removed in the next release.")]
+    public abstract class ContextFactoryComponent : ContextBehaviour
     {
-        private Lifetime.Definition _lifetime;
-        private Signal _onFixedUpdate;
-        private Signal<bool> _onFocus;
-        private Signal _onLateUpdate;
-        private Signal<bool> _onPause;
-        private Signal _onQuit;
-        private Signal _onUpdate;
-
-        public ISignal OnUpdate => _onUpdate;
-        public ISignal OnLateUpdate => _onLateUpdate;
-        public ISignal OnFixedUpdate => _onFixedUpdate;
-        public ISignal OnQuit => _onQuit;
-        public ISignal<bool> OnFocus => _onFocus;
-        public ISignal<bool> OnPause => _onPause;
-        public Lifetime Lifetime => _lifetime.Lifetime;
-
-        private void Awake() => Create();
-
-        private void Update() => _onUpdate.Fire();
-
-        private void FixedUpdate() => _onFixedUpdate.Fire();
-
-        private void LateUpdate() => _onLateUpdate.Fire();
-
-        private void OnDestroy() => _lifetime.Terminate();
-
-        private void OnApplicationFocus(bool focus) => _onFocus.Fire(focus);
-
-        private void OnApplicationPause(bool pause) => _onPause.Fire(pause);
-
-        private void OnApplicationQuit() => _onQuit.Fire();
-
-        [ContextMenu("Rebuild")]
-        public void Rebuild()
-        {
-            _lifetime?.Terminate();
-            Create();
-        }
-
+        /// <summary>
+        /// The pre-2.0.0 synchronous boot seam. Called from
+        /// <see cref="ContextBehaviour.CreateContextAsync"/>, on the main thread, exactly where it used to be
+        /// called from <c>Awake</c>.
+        /// </summary>
         protected abstract void CreateContext();
 
-        private void Create()
+        /// <inheritdoc />
+        protected override Task<Context> CreateContextAsync(CancellationToken cancellationToken)
         {
-            _lifetime = Lifetime.Eternal.DefineNested(gameObject.name);
-
-            _onUpdate = new Signal(_lifetime.Lifetime);
-            _onLateUpdate = new Signal(_lifetime.Lifetime);
-            _onFixedUpdate = new Signal(_lifetime.Lifetime);
-            _onQuit = new Signal(_lifetime.Lifetime);
-            _onFocus = new Signal<bool>(_lifetime.Lifetime);
-            _onPause = new Signal<bool>(_lifetime.Lifetime);
-
-            DontDestroyOnLoad(gameObject);
-
             CreateContext();
+            return OpenUGD.Context.CreateBuilder(Lifetime).BuildAsync(cancellationToken);
         }
     }
 
+    /// <summary>
+    /// Compatibility shim for the pre-2.0.0 <c>ContextFactoryComponent&lt;T&gt;</c>. Derive from
+    /// <see cref="ContextBehaviour"/> instead.
+    /// </summary>
+    /// <typeparam name="T">
+    /// The pre-2.0.0 context type. The old <c>where T : IContext</c> constraint is gone with
+    /// <c>OpenUGD.Core.IContext</c>; any reference type is now accepted.
+    /// </typeparam>
+    /// <remarks>
+    /// <see cref="Context"/> hides <see cref="ContextBehaviour.Context"/> and returns what
+    /// <see cref="CreateContext(OpenUGD.Lifetime)"/> made, exactly as before.
+    /// </remarks>
+    [Obsolete("Derive from ContextBehaviour and override CreateContextAsync. " +
+              "ContextFactoryComponent<T> is removed in the next release.")]
     public abstract class ContextFactoryComponent<T> : ContextFactoryComponent
-        where T : IContext
+        where T : class
     {
-        public T Context { get; private set; }
+        /// <summary>The object returned by <see cref="CreateContext(OpenUGD.Lifetime)"/>; <c>null</c> until
+        /// then.</summary>
+        public new T Context { get; private set; }
 
+        /// <summary>Builds the pre-2.0.0 context object.</summary>
+        /// <param name="lifetime">The behaviour's scope.</param>
         protected abstract T CreateContext(Lifetime lifetime);
 
+        /// <inheritdoc />
         protected sealed override void CreateContext() => Context = CreateContext(Lifetime);
     }
 }

@@ -1,63 +1,174 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace OpenUGD.Commands
 {
-    public class CommandMapper : ICommandMapper
+    /// <summary>
+    /// Dispatches one message type to every command registered for it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Each command is constructed fresh per message by <see cref="Context.Instantiate(Type, object[])"/>.
+    /// The message, the registration's <see cref="Lifetime.Definition"/> and its <see cref="Lifetime"/> are
+    /// offered as constructor arguments; every other parameter is resolved from the context.
+    /// </para>
+    /// <para>
+    /// This is what replaced the 0.6.1 sequence "register the message into the injector, inject, execute,
+    /// unregister": a throwing <see cref="ICommand.Execute"/> skipped both unregister calls, so the message
+    /// stayed registered forever and the remaining commands never ran. There is now no container mutation to
+    /// fail to undo, and a throwing command no longer stops the others — every failure is collected and
+    /// surfaced together as an <see cref="AggregateException"/>, the same discipline <see cref="Signal"/> and
+    /// <see cref="Lifetime"/> 2.0.0 use.
+    /// </para>
+    /// </remarks>
+    public class CommandMapper : ICommandMapper, ICommandMapperRemove, ITellMessage
     {
-        private readonly List<CommandFactory> _commands;
-        private readonly IInjector _injector;
+        private readonly List<Entry> _commands = new List<Entry>();
+        private readonly Context _context;
         private readonly Lifetime _lifetime;
         private readonly Type _messageType;
-        private List<Type> _map;
 
-        public CommandMapper(Lifetime lifetime, Type messageType, IInjector injector)
+        /// <summary>Creates a mapper for one message type.</summary>
+        /// <param name="lifetime">The scope every registration is nested under.</param>
+        /// <param name="messageType">The message type this mapper dispatches.</param>
+        /// <param name="context">The context commands are instantiated from.</param>
+        /// <exception cref="ArgumentNullException">Any argument is null.</exception>
+        public CommandMapper(Lifetime lifetime, Type messageType, Context context)
         {
+            if (lifetime == null) throw new ArgumentNullException(nameof(lifetime));
+            if (messageType == null) throw new ArgumentNullException(nameof(messageType));
+            if (context == null) throw new ArgumentNullException(nameof(context));
+
             _lifetime = lifetime;
             _messageType = messageType;
-            _injector = new Injector(injector);
-            _commands = new List<CommandFactory>();
+            _context = context;
         }
 
-        public Lifetime RegisterCommand(Func<Lifetime, ICommand> factory, bool oneTime = false)
-        {
-            var lifetime = Lifetime.Define(_lifetime);
-            var commandFactory = new CommandFactory(factory, oneTime, lifetime);
-            _commands.Add(commandFactory);
-            lifetime.Lifetime.AddAction(() => { _commands.Remove(commandFactory); });
-            return lifetime.Lifetime;
-        }
+        /// <summary>The message type this mapper dispatches.</summary>
+        public Type MessageType => _messageType;
 
-        public void Tell(object message)
+        /// <inheritdoc />
+        public Lifetime RegisterCommand(Type commandType, bool oneTime = false)
         {
-            foreach (var factory in _commands.ToArray())
+            if (commandType == null) throw new ArgumentNullException(nameof(commandType));
+
+            if (!typeof(ICommand).IsAssignableFrom(commandType) || commandType.IsAbstract ||
+                commandType.IsInterface || commandType.IsGenericTypeDefinition)
             {
-                var command = factory.Factory(factory.Lifetime.Lifetime);
+                throw new ArgumentException(
+                    "'" + commandType + "' cannot be registered against '" + _messageType +
+                    "': a command must be a concrete, closed class implementing " + typeof(ICommand) + ".",
+                    nameof(commandType));
+            }
 
-                _injector.ToValue<Lifetime.Definition>(factory.Lifetime);
-                _injector.ToValue(_messageType, message);
-                _injector.Inject(command);
-                command.Execute();
-                _injector.UnRegister(_messageType);
-                _injector.UnRegister(typeof(Lifetime.Definition));
-                if (factory.OneTime)
-                {
-                    factory.Lifetime.Terminate();
-                }
+            if (_lifetime.IsTerminated)
+            {
+                throw new InvalidOperationException(
+                    "The scope of the command map for '" + _messageType +
+                    "' has already terminated, so registering '" + commandType +
+                    "' would silently never run. Register before the scope ends.");
+            }
+
+            var definition = Lifetime.Define(_lifetime, commandType.Name);
+            var entry = new Entry(commandType, oneTime, definition);
+            _commands.Add(entry);
+            definition.Lifetime.AddAction(() => _commands.Remove(entry));
+            return definition.Lifetime;
+        }
+
+        /// <inheritdoc />
+        public void Remove<T>() where T : ICommand => Remove(typeof(T));
+
+        /// <inheritdoc />
+        public void Remove(Type commandType)
+        {
+            if (commandType == null) throw new ArgumentNullException(nameof(commandType));
+
+            var snapshot = _commands.ToArray();
+            for (var i = 0; i < snapshot.Length; i++)
+            {
+                if (snapshot[i].CommandType == commandType) snapshot[i].Definition.Terminate();
             }
         }
 
-        private class CommandFactory
+        /// <summary>
+        /// Runs every registered command against <paramref name="message"/>, in registration order.
+        /// </summary>
+        /// <param name="message">An instance of <see cref="MessageType"/>.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="message"/> is null.</exception>
+        /// <exception cref="ArgumentException">
+        /// <paramref name="message"/> is not an instance of <see cref="MessageType"/>.
+        /// </exception>
+        /// <exception cref="AggregateException">
+        /// One or more commands threw. Every command still ran; the failures are collected here.
+        /// </exception>
+        public void Tell(object message)
         {
-            public readonly Func<Lifetime, ICommand> Factory;
-            public readonly Lifetime.Definition Lifetime;
-            public readonly bool OneTime;
+            if (message == null) throw new ArgumentNullException(nameof(message));
 
-            public CommandFactory(Func<Lifetime, ICommand> factory, bool oneTime, Lifetime.Definition lifetime)
+            if (!_messageType.IsInstanceOfType(message))
             {
-                Factory = factory;
+                throw new ArgumentException(
+                    "This mapper dispatches '" + _messageType + "' but was told a '" + message.GetType() + "'.",
+                    nameof(message));
+            }
+
+            if (_commands.Count == 0) return;
+
+            var snapshot = _commands.ToArray();
+            List<Exception> failures = null;
+
+            for (var i = 0; i < snapshot.Length; i++)
+            {
+                var entry = snapshot[i];
+
+                // Unregistered while this dispatch was in flight: do not run it, exactly as Signal
+                // 2.0.0 does not invoke a handler unsubscribed mid-dispatch.
+                if (entry.Definition.IsTerminated) continue;
+
+                try
+                {
+                    var command = (ICommand)_context.Instantiate(
+                        entry.CommandType,
+                        new object[] { message, entry.Definition, entry.Definition.Lifetime });
+
+                    command.Execute();
+                }
+                catch (Exception exception)
+                {
+                    (failures ?? (failures = new List<Exception>())).Add(exception);
+                }
+
+                if (!entry.OneTime) continue;
+
+                try
+                {
+                    entry.Definition.Terminate();
+                }
+                catch (Exception exception)
+                {
+                    (failures ?? (failures = new List<Exception>())).Add(exception);
+                }
+            }
+
+            if (failures == null) return;
+
+            throw new AggregateException(
+                failures.Count + " command(s) failed while handling '" + _messageType +
+                "'. Every registered command still ran; call Flatten() for the leaves.", failures);
+        }
+
+        private sealed class Entry
+        {
+            internal readonly Type CommandType;
+            internal readonly Lifetime.Definition Definition;
+            internal readonly bool OneTime;
+
+            internal Entry(Type commandType, bool oneTime, Lifetime.Definition definition)
+            {
+                CommandType = commandType;
                 OneTime = oneTime;
-                Lifetime = lifetime;
+                Definition = definition;
             }
         }
     }

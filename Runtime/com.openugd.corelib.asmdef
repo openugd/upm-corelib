@@ -4,7 +4,7 @@
     "references": [
         "com.openugd.lifetime",
         "com.openugd.signal",
-        "com.openugd.dependency.injection"
+        "com.openugd.context"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

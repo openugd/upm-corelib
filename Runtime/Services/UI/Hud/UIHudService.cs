@@ -1,14 +1,15 @@
-﻿#pragma warning disable CS0649
+#pragma warning disable CS0649
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
-using OpenUGD.Core.Widgets;
+using OpenUGD.Core.Presenters;
 using OpenUGD.Utils.Components;
 using UnityEngine.Assertions;
 
 namespace OpenUGD.Services.UI.Hud
 {
+    /// <summary>The default <see cref="IHudService"/>, its registry and its provider.</summary>
     public class UIHudService : Service, IHudService, IUIHudProvider, IUIHudRegister
     {
         private readonly Dictionary<Type, UIHudFactoryInfo> _map = new();
@@ -21,8 +22,9 @@ namespace OpenUGD.Services.UI.Hud
 
         [Inject] private IUIHudProvider _provider;
 
-        public ReadOnlyCollection<UIHudReference> Opened
-            => _openedReadOnly ?? (_openedReadOnly = _opened.AsReadOnly());
+        /// <inheritdoc />
+        public ReadOnlyCollection<UIHudReference> Opened =>
+            _openedReadOnly ?? (_openedReadOnly = _opened.AsReadOnly());
 
         UIHudFactoryInfo IUIHudProvider.Get(Type type) => _map[type];
 
@@ -34,22 +36,25 @@ namespace OpenUGD.Services.UI.Hud
             lifetime.AddAction(() => _map.Remove(type));
         }
 
-        public UIHudReference Open(Type type, object model = null, Action<Widget> onOpen = null)
+        /// <inheritdoc />
+        public UIHudReference Open(Type type, object model = null, Action<Presenter> onOpen = null)
         {
-            Assert.IsTrue(type.IsSubclassOf(typeof(Widget)));
+            Assert.IsTrue(type.IsSubclassOf(typeof(Presenter)));
 
             var definition = Lifetime.Define(Lifetime);
             var reference = new UIHudReference(definition);
             Enqueue(type, onOpen, definition, model, reference);
             return reference;
         }
-        
-        public T Find<T>() where T : Widget
-            => _opened.Find(t => t.Widget is T)?.Widget as T;
 
+        /// <inheritdoc />
+        public T Find<T>() where T : Presenter => _opened.Find(t => t.Presenter is T)?.Presenter as T;
+
+        /// <inheritdoc />
         public void Subscribe(Lifetime lifetime, Action<Type, UIHudActionType> listener) =>
             _onChange.Subscribe(lifetime, listener);
 
+        /// <inheritdoc />
         protected override Task OnAwake()
         {
             _onChange = new Signal<Type, UIHudActionType>(Lifetime);
@@ -57,46 +62,44 @@ namespace OpenUGD.Services.UI.Hud
         }
 
         private void Enqueue(Type type,
-            Action<Widget> onOpen,
+            Action<Presenter> onOpen,
             Lifetime.Definition definition,
             object model,
             UIHudReference reference
         )
         {
-            Action<Action> action = callback =>
-            {
+            Action<Action> action = callback => {
                 var factoryInfo = _provider.Get(type);
-                var injector = factoryInfo.Options.Injector;
-                var provider = factoryInfo.Options.Provider();
-                injector.Inject(provider);
-                var widget = (Widget)injector.Resolve(type);
-                var viewType = widget.GetViewType();
+                var options = factoryInfo.Options;
+                var context = options.Context;
+                var provider = options.Provider();
+                context.Inject(provider);
+                var presenter = (Presenter)context.Instantiate(type);
+                var viewType = presenter.GetViewType();
                 provider.Provide(
                     lifetime: definition.Lifetime,
-                    options: factoryInfo.Options,
+                    options: options,
                     targetType: viewType,
-                    onResult: providerContext =>
-                    {
+                    onResult: providerContext => {
                         var view = providerContext.Component;
                         view.gameObject.AddComponent<SignalMonoBehaviour>().DestroySignal
                             .Subscribe(definition.Lifetime, definition.Terminate);
 
-                        definition.Lifetime.AddAction(() =>
-                        {
+                        definition.Lifetime.AddAction(() => {
                             _opened.Remove(reference);
                             providerContext.Dispose();
                             _onChange.Fire(type, UIHudActionType.Closed);
-                            reference.Widget = null;
+                            reference.Presenter = null;
                         });
 
                         _opened.Add(reference);
-                        reference.Widget = widget;
+                        reference.Presenter = presenter;
 
-                        Widget.Internal.Initialize(injector, widget, definition);
+                        Presenter.Internal.Initialize(context, presenter, definition);
 
                         if (!definition.IsTerminated)
                         {
-                            var modelMediator = widget as IWidgetWithModel;
+                            var modelMediator = presenter as IPresenterWithModel;
                             if (model != null)
                             {
                                 Assert.IsNotNull(modelMediator);
@@ -105,32 +108,30 @@ namespace OpenUGD.Services.UI.Hud
 
                             if (!definition.IsTerminated)
                             {
-                                var viewMediator = (IWidgetWithView)widget;
+                                // Model first, then view: attaching the view runs OnViewAdded and then
+                                // the first OnRefresh, with the model already in place. That is what
+                                // replaced Presenter.Internal.Ready(presenter) here.
+                                var viewMediator = (IPresenterWithView)presenter;
                                 var viewComponent = view.GetType() != viewMediator.ViewType
                                     ? view.GetComponent(viewMediator.ViewType)
                                     : view;
                                 viewMediator.SetView(viewComponent);
-                                if (!definition.IsTerminated)
-                                {
-                                    Widget.Internal.Ready(widget);
 
-                                    if (onOpen != null)
-                                    {
-                                        onOpen(widget);
-                                    }
+                                if (!definition.IsTerminated && onOpen != null)
+                                {
+                                    onOpen(presenter);
                                 }
                             }
                         }
 
                         _onChange.Fire(type, UIHudActionType.Opened);
-                        
+
                         callback();
                     });
             };
 
             _queue.AddLast(action);
-            definition.Lifetime.AddAction(() =>
-            {
+            definition.Lifetime.AddAction(() => {
                 _queue.Remove(action);
                 if (_queue.Count == 0)
                 {
@@ -152,8 +153,7 @@ namespace OpenUGD.Services.UI.Hud
             {
                 var first = _queue.First.Value;
                 _queue.RemoveFirst();
-                first(() =>
-                {
+                first(() => {
                     if (_queue.Count != 0)
                     {
                         OpenProcess();
