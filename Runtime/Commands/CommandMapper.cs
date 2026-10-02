@@ -16,9 +16,10 @@ namespace OpenUGD.Commands
     /// This is what replaced the 0.6.1 sequence "register the message into the injector, inject, execute,
     /// unregister": a throwing <see cref="ICommand.Execute"/> skipped both unregister calls, so the message
     /// stayed registered forever and the remaining commands never ran. There is now no container mutation to
-    /// fail to undo, and a throwing command no longer stops the others — every failure is collected and
-    /// surfaced together as an <see cref="AggregateException"/>, the same discipline <see cref="Signal"/> and
-    /// <see cref="Lifetime"/> 2.0.0 use.
+    /// fail to undo, and a throwing command no longer stops the others: every failure is collected and
+    /// surfaced together as an <see cref="AggregateException"/>, even when only one command failed. That last
+    /// part differs from <see cref="Lifetime"/> 2.0.0 and <c>Signal</c> 2.0.0, which rethrow a single failure
+    /// as itself.
     /// </para>
     /// </remarks>
     public class CommandMapper : ICommandMapper, ICommandMapperRemove, ITellMessage
@@ -69,7 +70,7 @@ namespace OpenUGD.Commands
                     "' would silently never run. Register before the scope ends.");
             }
 
-            var definition = Lifetime.Define(_lifetime, commandType.Name);
+            var definition = _lifetime.DefineNested(commandType.Name);
             var entry = new Entry(commandType, oneTime, definition);
             _commands.Add(entry);
             definition.Lifetime.AddAction(() => _commands.Remove(entry));

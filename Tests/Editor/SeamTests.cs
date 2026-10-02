@@ -26,7 +26,7 @@ namespace OpenUGD.Tests
         [SetUp]
         public void SetUp()
         {
-            _definition = Lifetime.Define(Lifetime.Eternal);
+            _definition = Lifetime.Eternal.DefineNested();
             _context = RunSync(() => {
                 var builder = Context.CreateBuilder(_definition.Lifetime);
                 builder.Services.AddInstance<Ledger>(new Ledger());

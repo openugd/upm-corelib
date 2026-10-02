@@ -373,6 +373,41 @@ namespace OpenUGD.Tests
         }
 
         [Test]
+        public void Close_WhenOneCleanUpThrows_RethrowsThatException_AndStillClosesTheRest()
+        {
+            var log = new List<string>();
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", log));
+            var first = parent.AddPresenter(new TreePresenter("a", log));
+            var second = parent.AddPresenter(new TreePresenter("b", log));
+            var failure = new InvalidOperationException("boom");
+            first.Lifetime.AddAction(() => throw failure);
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => parent.Close());
+
+            Assert.AreSame(failure, thrown, "a single failure must arrive as itself, not wrapped");
+            Assert.IsTrue(parent.Lifetime.IsTerminated);
+            Assert.IsTrue(first.Lifetime.IsTerminated);
+            Assert.IsTrue(second.Lifetime.IsTerminated, "a failing sibling must not stop the others closing");
+            CollectionAssert.IsSubsetOf(new[] { "a:close", "b:close", "p:close" }, log);
+        }
+
+        [Test]
+        public void Close_WhenSeveralCleanUpsThrow_ReportsThemAsOneAggregate()
+        {
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", new List<string>()));
+            var first = parent.AddPresenter(new TreePresenter("a", new List<string>()));
+            var second = parent.AddPresenter(new TreePresenter("b", new List<string>()));
+            first.Lifetime.AddAction(() => throw new InvalidOperationException("a"));
+            second.Lifetime.AddAction(() => throw new InvalidOperationException("b"));
+
+            var thrown = Assert.Throws<AggregateException>(() => parent.Close());
+
+            Assert.AreEqual(2, thrown.Flatten().InnerExceptions.Count);
+            Assert.IsTrue(first.Lifetime.IsTerminated);
+            Assert.IsTrue(second.Lifetime.IsTerminated);
+        }
+
+        [Test]
         public void TerminatingTheOwningLifetime_ClosesTheWholeTree()
         {
             var log = new List<string>();
@@ -596,6 +631,22 @@ namespace OpenUGD.Tests
         }
 
         [Test]
+        public void AddPresenter_AfterClose_LeavesNoHalfAttachedChild()
+        {
+            // Lifetime 2.0.0 no longer throws from DefineNested on a terminated lifetime; it returns a scope
+            // that is born terminated. The guard has to come before the child is linked.
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", new List<string>()));
+            parent.Close();
+            var orphan = new TreePresenter("c", new List<string>());
+
+            Assert.Throws<InvalidOperationException>(() => parent.AddPresenter(orphan));
+
+            CollectionAssert.IsEmpty(parent.Children, "a refused child must not be linked into the closed parent");
+            Assert.DoesNotThrow(() => CreateRoot().AddPresenter(orphan),
+                "a refused child was never attached, so it can still be attached to a live presenter");
+        }
+
+        [Test]
         public void AttachingTheSamePresenterTwice_Throws()
         {
             var root = CreateRoot();
@@ -608,7 +659,7 @@ namespace OpenUGD.Tests
 
         private Lifetime.Definition NewDefinition()
         {
-            var definition = Lifetime.Define(Lifetime.Eternal);
+            var definition = Lifetime.Eternal.DefineNested();
             _definitions.Add(definition);
             return definition;
         }

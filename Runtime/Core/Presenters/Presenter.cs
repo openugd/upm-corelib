@@ -103,8 +103,9 @@ namespace OpenUGD.Core.Presenters
     /// <see cref="OnInitialize"/> and the presenter's own code registered on the lifetime (LIFO, per
     /// <see cref="OpenUGD.Lifetime"/>), then <see cref="OnClose"/>, then every child, then the unlink from
     /// the parent. Children are terminated leaf-last-registered-first, and each child repeats the sequence. A
-    /// child that throws while closing does not prevent its siblings from closing: failures surface together
-    /// as an <see cref="AggregateException"/> from <see cref="Close"/>.
+    /// child that throws while closing does not prevent its siblings from closing. The failures are reported
+    /// by <see cref="Close"/> once everything has run, as <see cref="OpenUGD.Lifetime"/> reports them: a single
+    /// failure as itself, two or more as one <see cref="AggregateException"/>.
     /// </para>
     /// <para>
     /// <b>Engine-free.</b> Nothing in this file references <c>UnityEngine</c>. A presenter tree can be built,
@@ -158,9 +159,15 @@ namespace OpenUGD.Core.Presenters
         /// <summary>
         /// Closes this presenter and, with it, its whole subtree. Idempotent.
         /// </summary>
+        /// <remarks>
+        /// If clean-up throws — a hook, an action registered on <see cref="Lifetime"/>, or a child's — every
+        /// other clean-up still runs and the presenter is closed either way; the failures are reported when
+        /// the last one has run.
+        /// </remarks>
         /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
-        /// <exception cref="AggregateException">One or more clean-up actions threw. Every one of them still
-        /// ran, and the presenter is closed either way.</exception>
+        /// <exception cref="Exception">Exactly one clean-up action threw: that exception, rethrown with its
+        /// original stack trace.</exception>
+        /// <exception cref="AggregateException">Two or more clean-up actions threw.</exception>
         public void Close() => (_definition ?? throw NotInitialized()).Terminate();
 
         /// <summary>
@@ -208,9 +215,13 @@ namespace OpenUGD.Core.Presenters
                 throw new ArgumentException($"{presenter.GetType().Name} is already a child of {GetType().Name}",
                     nameof(presenter));
 
-            // Defined first: this throws if our own lifetime is already terminated, so a failure cannot
-            // leave a half-attached child in _children.
+            // Defined and checked before the child is linked, so a failure cannot leave a half-attached child
+            // in _children. A scope defined on a terminated lifetime is born terminated rather than throwing.
             var definition = Lifetime.DefineNested(presenter.GetType().Name);
+            if (definition.IsTerminated)
+                throw new InvalidOperationException(
+                    $"cannot attach {presenter.GetType().Name} to {GetType().Name}: {GetType().Name} has " +
+                    "already closed. Check Lifetime.IsTerminated before attaching, and skip the whole open.");
 
             _children.Add(presenter);
             presenter.Parent = this;

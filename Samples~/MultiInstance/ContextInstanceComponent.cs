@@ -175,9 +175,13 @@ namespace OpenUGD.Core
         /// <see cref="ContextFactoryInstancesComponent.Select"/> to move focus between instances.
         /// </para>
         /// </remarks>
+        /// <exception cref="Exception">
+        /// Exactly one subscriber threw: that exception, rethrown with its original stack trace. Every
+        /// subscriber still ran, and this instance is selected either way — the exception is reported after
+        /// the state change, never instead of it.
+        /// </exception>
         /// <exception cref="AggregateException">
-        /// One or more subscribers threw. Every subscriber still ran, and this instance is selected either
-        /// way — the exception is reported after the state change, never instead of it.
+        /// Two or more subscribers threw. The same holds: every subscriber ran, and the instance is selected.
         /// </exception>
         public void Select()
         {
@@ -201,9 +205,13 @@ namespace OpenUGD.Core
         /// <see cref="ContextFactoryInstancesComponent"/> silences the instances it creates after the
         /// first.
         /// </remarks>
+        /// <exception cref="Exception">
+        /// Exactly one subscriber threw: that exception, rethrown with its original stack trace. Every
+        /// subscriber still ran, and this instance is unselected either way.
+        /// </exception>
         /// <exception cref="AggregateException">
-        /// One or more subscribers threw. Every subscriber still ran, and this instance is unselected
-        /// either way.
+        /// Two or more subscribers threw. Every subscriber still ran, and this instance is unselected either
+        /// way.
         /// </exception>
         public void Unselect()
         {

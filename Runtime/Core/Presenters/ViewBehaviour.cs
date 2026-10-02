@@ -28,7 +28,7 @@ namespace OpenUGD.Core.Presenters
 
         private void Awake()
         {
-            _definition = Lifetime.Define(Lifetime.Eternal);
+            _definition = Lifetime.Eternal.DefineNested();
             OnAwake();
         }
 

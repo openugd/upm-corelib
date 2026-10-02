@@ -122,8 +122,10 @@ namespace OpenUGD.Core
         /// <exception cref="System.ArgumentOutOfRangeException">
         /// <paramref name="index"/> is less than <c>-1</c>.
         /// </exception>
-        /// <exception cref="System.AggregateException">
-        /// A focus listener on either instance threw; see the note above about the half-done switch.
+        /// <exception cref="System.Exception">
+        /// A focus listener threw: one failure on an instance is rethrown as itself, two or more on the same
+        /// instance as one <see cref="System.AggregateException"/>. See the note above about the half-done
+        /// switch.
         /// </exception>
         public void Select(int index)
         {
@@ -170,10 +172,12 @@ namespace OpenUGD.Core
         /// <c>DontDestroyOnLoad</c>.
         /// </para>
         /// </remarks>
-        /// <exception cref="System.AggregateException">
-        /// A focus listener on one of the new instances threw while it was being selected or unselected.
-        /// The instances built so far are kept and tracked, the remaining ones are never created, and
-        /// <see cref="Prefab"/>'s index is still restored on the way out.
+        /// <exception cref="System.Exception">
+        /// A focus listener on one of the new instances threw while it was being selected or unselected: one
+        /// failure is rethrown as itself, two or more on the same instance as one
+        /// <see cref="System.AggregateException"/>. The instances built so far are kept and tracked, the
+        /// remaining ones are never created, and <see cref="Prefab"/>'s index is still restored on the way
+        /// out.
         /// </exception>
         public void Rebuild()
         {

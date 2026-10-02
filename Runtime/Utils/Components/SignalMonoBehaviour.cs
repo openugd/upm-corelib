@@ -89,7 +89,7 @@ namespace OpenUGD.Utils.Components
                 return;
             }
 
-            _definition = Lifetime.Define(Lifetime.Eternal);
+            _definition = Lifetime.Eternal.DefineNested();
             var lifetime = _definition.Lifetime;
 
             _onStart = new Signal(lifetime);
@@ -127,8 +127,9 @@ namespace OpenUGD.Utils.Components
                 return;
             }
 
-            // Signal 2.0.0 aggregates handler exceptions and rethrows them. Without the finally, one bad
-            // subscriber would skip Terminate() and strand this definition on Lifetime.Eternal forever.
+            // Signal 2.0.0 runs every handler and then rethrows what failed (one failure as itself, several as
+            // an AggregateException). Without the finally, one bad subscriber would skip Terminate() and strand
+            // this definition on Lifetime.Eternal forever.
             try
             {
                 _onDestroy.Fire();

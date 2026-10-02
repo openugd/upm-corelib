@@ -162,7 +162,7 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 - `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - `Runtime/AssemblyInfo.cs` with `InternalsVisibleTo("com.openugd.corelib.tests")`.
-- An Edit Mode test suite: 46 tests over the presenter tree, the two hooks, the deleted surface, the
+- An Edit Mode test suite: 49 tests over the presenter tree, the two hooks, the deleted surface, the
   presenter open sequence and the command mapper. None of them needs a Unity runtime.
 
 ### Changed
@@ -211,6 +211,11 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 - **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, Context)`.**
 - **Breaking: `Presenter.Internal.Initialize` takes a `Context`, has no `beforeInitialization` parameter,
   and throws if the lifetime it is handed has already terminated.**
+- **Breaking: `Presenter.Close()` and `Dispose()` finish the whole teardown even when clean-up throws,
+  then report the failures as `Lifetime` 2.0.0 does: one failure as itself, with its stack trace, two or
+  more as one `AggregateException`.** In 0.6.1 the first failure stopped the rest of the teardown, so the
+  presenters after it never closed. Migration: catch the exception your clean-up throws; expect an
+  `AggregateException` only when several fail.
 - **Breaking: `Presenter.Children` is `IReadOnlyList<Presenter>` (a live view), not an array (a fresh
   one per call).** Do not hold it across anything that can close a presenter; use
   `PresenterExtensions.GetChildren` for a snapshot.
