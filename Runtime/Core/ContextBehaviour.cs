@@ -22,9 +22,9 @@ namespace OpenUGD.Core
     /// <b>Breaking change in 2.0.0.</b> The boot is no longer a discarded <c>Task</c>. It is
     /// <see cref="Startup"/>: owned, awaitable and observable, so a failure surfaces through
     /// <see cref="OnStartFailed"/> <i>and</i> faults <see cref="Startup"/> instead of vanishing. An
-    /// integration test can therefore <c>await behaviour.Startup</c> and see the real exception. The old
-    /// synchronous <c>CreateContext()</c> seam survives one release as
-    /// <see cref="ContextFactoryComponent"/>.
+    /// integration test can therefore <c>await behaviour.Startup</c> and see the real exception. This class
+    /// replaces the 0.6.x <c>ContextFactoryComponent</c>, whose synchronous <c>CreateContext()</c> seam is
+    /// gone with no shim: override <see cref="CreateContextAsync"/> instead.
     /// </para>
     /// <para>
     /// <b>Ordering.</b> Nothing here waits for the boot. The six signals exist from <c>Awake</c> and fire

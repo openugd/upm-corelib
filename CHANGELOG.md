@@ -68,11 +68,24 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
   namespace is now `OpenUGD.Core.Logging` — see *Changed*.
 - **Breaking: `OpenUGD.Core.ILifetimeProvider`.** `OpenUGD.ILifetimeProvider`, from the context
   package, replaces it. `Context` already implements it.
-- **Breaking: `ServiceState`, `Service.State` and the public `Service.Internal` class.** The state
-  machine validated an ordering the caller could get wrong; the new pipeline runs the phases itself, so
-  there is no ordering left to validate. Its two `async void` completion checks went with it — an
-  exception from either could not be caught by anything and took the process down.
-- **Breaking: `Service` no longer implements `IResolve`.** Ask the `Context`.
+- **Breaking: `Service`, `ContextFactoryComponent` and `ContextFactoryComponent<T>` are removed, with no
+  shim,** and so is the inspector `ContextFactoryComponentEditor`. Earlier 2.0.0 work kept the three as
+  `[Obsolete]` shims "removed in the next release", a promise 2.x could not keep: a type released in
+  2.0.0 can only be removed in 3.0. The shims themselves were never released, so removing them breaks no
+  published version. Code written against the 0.6.x types is ported once, when it moves to 2.0:
+  - `Service` becomes a plain class that implements `IAwakeService` and/or `IInitializeService` from
+    `com.openugd.context`. `OnAwake()` and `OnInitialize()` become `AwakeAsync(CancellationToken)` and
+    `InitializeAsync(CancellationToken)`. What `Resolve<T>()` returned, the `Lifetime` and the `Context`
+    become constructor parameters; the container supplies `Lifetime` and `Context` itself. `Logger`
+    becomes an injected `ILog`, tagged with `log.WithTag(GetType())`. `IResolve` is not implemented by
+    anything any more; ask the `Context`. The state machine (`ServiceState`, `State` and the public
+    `Service.Internal`) has no replacement: the container runs the phases itself, so there is no
+    ordering left to validate. Its two `async void` completion checks are gone with it; an exception
+    from either could not be caught by anything and took the process down.
+  - A `ContextFactoryComponent` or `ContextFactoryComponent<T>` subclass derives from
+    `ContextBehaviour` instead and overrides `CreateContextAsync`, returning
+    `builder.BuildAsync(cancellationToken)`. Scene references survive the port, because a scene
+    serializes the `MonoScript` GUID of the concrete subclass, never of an abstract base.
 - **Breaking: `Widget.OnReady`, `Widget.Internal.Ready`, `ISubscribeNotify`,
   `IWidgetWithModel.ModelChanged`, `IWidgetWithView<TView>`, `IWidgetWithView.View`,
   `IWidgetWithView.OnViewAdded` / `.OnViewBeforeRemove` / `.OnViewAfterRemoved`,
@@ -142,7 +155,6 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
   | `LoggerGlobal` | `LogRoot` | the root channel that owns the sinks and hands out tagged children |
   | `UnityLoggerProvider` | `UnityLogSink` | matches `ILogSink` |
   | `UseUnityLogger(...)` | `UseUnityConsole(...)` | says where the records actually go |
-  | `Service.Logger` | `Service.Log` | |
 
 
 - **Breaking: `Widget` is renamed `Presenter`, and the namespace `OpenUGD.Core.Widgets` is renamed
@@ -207,20 +219,6 @@ reaches you. The two headline breaks are the UI services leaving corelib, the fi
 - `SynchronizationContextWrapper` rejects a `null` context. `SynchronizationContext.Current` is `null`
   on any thread with no installed context; the null used to be stored and every later `Send`/`Post`
   threw `NullReferenceException` far from the cause.
-- `Service.Logger` is resolved lazily from the `Context` and throws, naming the fix, when no `Logger` is
-  registered. It used to be handed in by the builder; it is now an ordinary registration, and its
-  absence must not silently yield `null`.
-- `Service` exposes `protected Resolve<T>()` for the common case. Its `Context` itself stays private:
-  `Service` is `[Obsolete]` and slated for removal, so it does not gain surface. A subclass that needs
-  `TryResolve`, `Instantiate` or `Inject` declares its own `[Inject] private Context _context;` — or,
-  better, stops deriving from `Service` and implements `IAwakeService` / `IInitializeService`.
-- `Service.OnAwake` / `OnInitialize` returning a `null` Task now throws with the type's name, instead of
-  stopping the boot with a `NullReferenceException` that names nothing.
-- `ContextFactoryComponent` and `ContextFactoryComponent<T>` are `[Obsolete]` shims over
-  `ContextBehaviour` and are removed in the next release. `ContextFactoryComponent<T>`'s constraint
-  relaxes from `where T : IContext` to `where T : class`, the constraint's type having been deleted.
-  These preserve **source** compatibility only — scene references were never at risk, because a scene
-  serializes the `MonoScript` GUID of the concrete subclass, never of an abstract base.
 - `package.json`: version 2.0.0; dependencies are now `com.openugd.lifetime`, `com.openugd.signal`,
   `com.openugd.context` and `com.unity.ugui` 2.0.0; `com.openugd.dependency.injection` removed;
   description and keywords rewritten.

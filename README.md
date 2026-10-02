@@ -147,8 +147,6 @@ This is the whole public surface of the package.
 | `ICoroutineProvider`, `CoroutineProvider` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
 | `ISynchronizationContext`, `SynchronizationContextWrapper` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
 | `SignalMonoBehaviour` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
-| `Service` | `OpenUGD.Services` | `[Obsolete]` migration shim. Implement `IAwakeService` / `IInitializeService` instead. |
-| `ContextFactoryComponent`, `ContextFactoryComponent<T>`, `ContextFactoryComponentEditor` | `OpenUGD.Core`, `OpenUGD.Core.Editor` | `[Obsolete]` migration shims over `ContextBehaviour`, and their inspector. |
 | `ContextInstanceComponent`, `ContextFactoryInstancesComponent`, `IContextInstanceProvider`, `ContextFactoryInstancesComponentEditor` | `OpenUGD.Core`, `OpenUGD.Core.Editor` | Several game instances, one per display, in one process, and the factory's inspector. |
 
 Composition itself lives in [`com.openugd.context`](https://github.com/openugd/upm-context): `Context`,
@@ -163,6 +161,11 @@ Composition itself lives in [`com.openugd.context`](https://github.com/openugd/u
   branch `park/ui-services` of this repository as that package's starting point. It is not a drop-in:
   it registers through `BootPhase.Configure`, which `com.openugd.context` 2.0.0 does not have. Until the
   new package ships, a project that needs these services stays on corelib 0.6.1.
+- **The 0.6.x base types `Service`, `ContextFactoryComponent` and `ContextFactoryComponent<T>`.** No
+  shim replaces them: shims that ship in 2.0.0 could only be removed in 3.0. A `Service` becomes a plain
+  class that implements `IAwakeService` / `IInitializeService`, as `ProfileService` does above, and a
+  `ContextFactoryComponent` subclass derives from `ContextBehaviour`, as `Bootstrap` does. The
+  [CHANGELOG](CHANGELOG.md) lists each step of the port.
 
 ## Requirements
 
