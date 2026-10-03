@@ -17,8 +17,9 @@ namespace OpenUGD.Core
     /// session starts clean whether or not the domain was reloaded (audit UH-11, LS-19, CX-21).
     /// </para>
     /// <para>
-    /// <b>Who uses it.</b> <see cref="ContextBehaviour"/>, <see cref="Presenters.ViewBehaviour"/> and
-    /// <see cref="Utils.Components.SignalMonoBehaviour"/> nest the scope they create here, so a component that Unity never destroys — one that was never activated, or
+    /// <b>Who uses it.</b> <see cref="LifetimeBehaviour"/> (<c>gameObject.GetLifetime()</c>),
+    /// <see cref="ContextBehaviour"/>, <see cref="Presenters.ViewBehaviour"/> and
+    /// <see cref="Utils.Components.SignalMonoBehaviour"/> nest the scope they create in <c>Awake</c> here, so a component that Unity never destroys — one that was never activated, or
     /// whose <c>OnDestroy</c> a subclass skipped — is reaped with the session instead of staying on
     /// <see cref="OpenUGD.Lifetime.Eternal"/> for the rest of the process. Pass it to
     /// <c>Context.CreateBuilder</c> for a context that is not owned by a <see cref="ContextBehaviour"/>.

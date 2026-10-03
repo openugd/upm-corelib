@@ -15,6 +15,10 @@ namespace OpenUGD.Presenters
     /// all it takes for <c>Refresh</c> to stop rather than write into a destroyed object.
     /// </para>
     /// <para>
+    /// <b>Its scope</b> follows the rules of <see cref="LifetimeBehaviour"/>: created in <c>Awake</c>, nested in
+    /// <see cref="PlaySession.Lifetime"/>, ended in <c>OnDestroy</c>, and an exception if read before <c>Awake</c>.
+    /// </para>
+    /// <para>
     /// <b>Subclassing.</b> <see cref="Awake"/> and <see cref="OnDestroy"/> are <c>protected virtual</c>.
     /// Override them and call <c>base</c> — <c>base.Awake()</c> first, since it creates <see cref="Lifetime"/>.
     /// Declaring either without <c>override</c> hides it, which the compiler reports as warning CS0114.
@@ -46,12 +50,7 @@ namespace OpenUGD.Presenters
         /// call <c>base.Awake()</c>.
         /// </exception>
         public Lifetime Lifetime =>
-            _definition != null
-                ? _definition.Lifetime
-                : throw new InvalidOperationException(
-                    $"{GetType().Name}.Lifetime was read before Awake() ran, so there is no scope yet. Unity runs " +
-                    "Awake when the GameObject is first active; activate it before binding anything to the view. " +
-                    "If a subclass overrides Awake, it must call base.Awake().");
+            _definition != null ? _definition.Lifetime : throw ComponentScope.NotAwake(this, nameof(Lifetime));
 
         /// <summary>
         /// Unity's <c>Awake</c>: creates <see cref="Lifetime"/>. <b>Call <c>base.Awake()</c> first</b> when
@@ -65,7 +64,7 @@ namespace OpenUGD.Presenters
         {
             if (_definition == null)
             {
-                _definition = PlaySession.Lifetime.DefineNested(name);
+                _definition = ComponentScope.Define(this);
             }
         }
 

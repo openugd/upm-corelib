@@ -10,8 +10,18 @@ namespace OpenUGD.Utils.Components
     /// <remarks>
     /// <para>
     /// Attach it with <c>AddComponent&lt;SignalMonoBehaviour&gt;()</c> and subscribe. Signals are scoped to a
-    /// <see cref="Lifetime"/> that this component owns and terminates in <c>OnDestroy</c>, so subscribers are
-    /// released with the object and no explicit unsubscribe is needed.
+    /// <see cref="Lifetime"/> that this component owns, so subscribers are released with the object and no
+    /// explicit unsubscribe is needed. The scope follows the rules of <see cref="LifetimeBehaviour"/>: created in
+    /// <c>Awake</c>, nested in <see cref="PlaySession.Lifetime"/>, and ended in <c>OnDestroy</c> or when the play
+    /// session ends, whichever comes first.
+    /// </para>
+    /// <para>
+    /// <b>Awake first.</b> The signals exist from <c>Awake</c>, which Unity runs inside <c>AddComponent</c> on an
+    /// active GameObject, and when an inactive one is first activated. Reading a signal before that throws
+    /// <see cref="System.InvalidOperationException"/>. <i>Changed in 2.0.0</i> — a signal property read before
+    /// <c>Awake</c> created the scope on <see cref="Lifetime.Eternal"/>, and on a GameObject that was never
+    /// activated — so never received <c>OnDestroy</c> — that scope, and every subscriber on it, stayed for the
+    /// rest of the process (audit UH-10, CC-27).
     /// </para>
     /// <para>
     /// <b>Breaking changes in 2.0.0.</b> <c>UpdateSignal</c>, <c>LateUpdateSignal</c>,
@@ -24,14 +34,9 @@ namespace OpenUGD.Utils.Components
     /// <para>
     /// <b>Subclassing.</b> <see cref="Awake"/>, <see cref="Start"/>, <see cref="OnEnable"/>,
     /// <see cref="OnDisable"/> and <see cref="OnDestroy"/> are <c>protected virtual</c>. Override one and call
-    /// <c>base</c>, or its signal stops firing — and, for <see cref="OnDestroy"/>, the scope is never released.
-    /// Declaring one without <c>override</c> hides it, which the compiler reports as warning CS0114.
-    /// </para>
-    /// <para>
-    /// <b>Caveat.</b> Unity does not run <c>Awake</c>, <c>Start</c> or <c>OnDestroy</c> on a component
-    /// attached to an inactive <see cref="GameObject"/> that is never activated. The signals are still
-    /// non-null and safe to subscribe to, but such an object destroyed while still inactive will not raise
-    /// <see cref="DestroySignal"/> — the engine never tells it that it was destroyed.
+    /// <c>base</c> — <c>base.Awake()</c> first, since it creates the signals — or its signal stops firing, and,
+    /// for <see cref="OnDestroy"/>, the scope lasts until the play session ends. Declaring one without
+    /// <c>override</c> hides it, which the compiler reports as warning CS0114.
     /// </para>
     /// </remarks>
     public class SignalMonoBehaviour : MonoBehaviour
@@ -44,128 +49,77 @@ namespace OpenUGD.Utils.Components
 
         /// <summary>Raised from Unity's <c>Start</c>, once, on the first frame this object is
         /// active.</summary>
-        public ISignal StartSignal
-        {
-            get
-            {
-                Initialize();
-                return _onStart;
-            }
-        }
+        /// <exception cref="System.InvalidOperationException">Read before <c>Awake</c>.</exception>
+        public ISignal StartSignal => _onStart ?? throw ComponentScope.NotAwake(this, nameof(StartSignal));
 
         /// <summary>Raised from Unity's <c>OnEnable</c>, on every activation.</summary>
         /// <remarks>
         /// The first activation happens inside <c>AddComponent</c>, before you hold the reference, so the
         /// initial enable is not observable. Later re-enables are.
         /// </remarks>
-        public ISignal EnableSignal
-        {
-            get
-            {
-                Initialize();
-                return _onEnable;
-            }
-        }
+        /// <exception cref="System.InvalidOperationException">Read before <c>Awake</c>.</exception>
+        public ISignal EnableSignal => _onEnable ?? throw ComponentScope.NotAwake(this, nameof(EnableSignal));
 
         /// <summary>Raised from Unity's <c>OnDisable</c>, on every deactivation — including the one that
-        /// precedes destruction.</summary>
-        public ISignal DisableSignal
-        {
-            get
-            {
-                Initialize();
-                return _onDisable;
-            }
-        }
+        /// precedes destruction, unless the play session has already ended the scope.</summary>
+        /// <exception cref="System.InvalidOperationException">Read before <c>Awake</c>.</exception>
+        public ISignal DisableSignal => _onDisable ?? throw ComponentScope.NotAwake(this, nameof(DisableSignal));
 
-        /// <summary>Raised from Unity's <c>OnDestroy</c>, once, immediately before this component's
-        /// <see cref="Lifetime"/> terminates.</summary>
-        public ISignal DestroySignal
-        {
-            get
-            {
-                Initialize();
-                return _onDestroy;
-            }
-        }
+        /// <summary>
+        /// Raised once, when this component's scope ends, immediately before the signals are released: from
+        /// Unity's <c>OnDestroy</c>, or earlier, when the play session ends (the application quits or play mode
+        /// is exited).
+        /// </summary>
+        /// <exception cref="System.InvalidOperationException">Read before <c>Awake</c>.</exception>
+        public ISignal DestroySignal => _onDestroy ?? throw ComponentScope.NotAwake(this, nameof(DestroySignal));
 
-        private void Initialize()
+        /// <summary>
+        /// Unity's <c>Awake</c>: creates the scope and the signals. <b>Call <c>base.Awake()</c> first</b> when
+        /// overriding; until it has run, every signal property throws.
+        /// </summary>
+        protected virtual void Awake()
         {
-            if (_definition != null)
-            {
-                return;
-            }
+            if (_definition != null) return;
 
-            _definition = PlaySession.Lifetime.DefineNested(nameof(SignalMonoBehaviour));
+            _definition = ComponentScope.Define(this);
             var lifetime = _definition.Lifetime;
 
             _onStart = new Signal(lifetime);
             _onEnable = new Signal(lifetime);
             _onDisable = new Signal(lifetime);
-            _onDestroy = new Signal(lifetime);
+            var onDestroy = _onDestroy = new Signal(lifetime);
+
+            // Registered after the signals, so it runs first when the scope ends, while they still deliver: on
+            // OnDestroy, and on the end of the play session. Signal 2.0.0 runs every handler and then rethrows what
+            // failed; the scope ends regardless, and Terminate reports the failure.
+            lifetime.AddAction(onDestroy.Fire);
         }
 
-        /// <summary>
-        /// Unity's <c>Awake</c>: creates the scope and the signals, if a signal property has not already done so.
-        /// <b>Call <c>base.Awake()</c></b> when overriding.
-        /// </summary>
-        protected virtual void Awake() => Initialize();
+        // Null-conditional: Unity raises these on any enabled component, and a subclass may skip base.Awake().
 
         /// <summary>
         /// Unity's <c>Start</c>: raises <see cref="StartSignal"/>. <b>Call <c>base.Start()</c></b> when
         /// overriding, or the signal never fires.
         /// </summary>
-        protected virtual void Start()
-        {
-            Initialize();
-            _onStart.Fire();
-        }
+        protected virtual void Start() => _onStart?.Fire();
 
         /// <summary>
         /// Unity's <c>OnEnable</c>: raises <see cref="EnableSignal"/>. <b>Call <c>base.OnEnable()</c></b> when
         /// overriding, or the signal never fires.
         /// </summary>
-        protected virtual void OnEnable()
-        {
-            Initialize();
-            _onEnable.Fire();
-        }
+        protected virtual void OnEnable() => _onEnable?.Fire();
 
         /// <summary>
         /// Unity's <c>OnDisable</c>: raises <see cref="DisableSignal"/>. <b>Call <c>base.OnDisable()</c></b> when
         /// overriding, or the signal never fires.
         /// </summary>
-        protected virtual void OnDisable()
-        {
-            Initialize();
-            _onDisable.Fire();
-        }
+        protected virtual void OnDisable() => _onDisable?.Fire();
 
         /// <summary>
-        /// Unity's <c>OnDestroy</c>: raises <see cref="DestroySignal"/>, then terminates this component's scope,
-        /// releasing every subscriber. <b>Call <c>base.OnDestroy()</c></b> when overriding, or neither happens
-        /// and the scope stays on <see cref="PlaySession.Lifetime"/> until the play session ends.
+        /// Unity's <c>OnDestroy</c>: ends this component's scope, which raises <see cref="DestroySignal"/> and then
+        /// releases every subscriber. <b>Call <c>base.OnDestroy()</c></b> when overriding, or neither happens until
+        /// the play session ends.
         /// </summary>
-        protected virtual void OnDestroy()
-        {
-            // Never initialised - Unity destroyed an object that was never activated. Nothing to fire, and no
-            // scope was ever allocated, so there is nothing to release either.
-            if (_definition == null)
-            {
-                return;
-            }
-
-            // Signal 2.0.0 runs every handler and then rethrows what failed (one failure as itself, several as
-            // an AggregateException). Without the finally, one bad subscriber would skip Terminate() and strand
-            // this definition on the play session until it ends.
-            try
-            {
-                _onDestroy.Fire();
-            }
-            finally
-            {
-                _definition.Terminate();
-            }
-        }
+        protected virtual void OnDestroy() => _definition?.Terminate();
     }
 }

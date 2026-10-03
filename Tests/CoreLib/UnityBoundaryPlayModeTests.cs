@@ -342,6 +342,125 @@ namespace OpenUGD.Tests
             then();
         }
 
+        // ------------------------------------------------------------------ the GameObject lifetime (LS-14)
+
+        [Test]
+        public void GetLifetime_OnAnActiveObject_EndsWhenTheObjectIsDestroyed()
+        {
+            var go = Create("object");
+
+            var lifetime = go.GetLifetime();
+
+            Assert.IsFalse(lifetime.IsTerminated);
+            Object.DestroyImmediate(go);
+            Assert.IsTrue(lifetime.IsTerminated);
+        }
+
+        [Test]
+        public void GetLifetime_IsOneScopePerObject_AndAComponentGetsItsObjects()
+        {
+            var go = Create("object");
+            var view = go.AddComponent<ViewBehaviour>();
+
+            var first = go.GetLifetime();
+
+            Assert.AreSame(first, go.GetLifetime());
+            Assert.AreSame(first, view.GetLifetime());
+            Assert.AreEqual(1, go.GetComponents<LifetimeBehaviour>().Length);
+        }
+
+        [Test]
+        public void GetLifetime_OnANeverActivatedObject_Throws_AndAddsNothing()
+        {
+            var go = Create("inactive");
+            go.SetActive(false);
+
+            Assert.Throws<InvalidOperationException>(() => go.GetLifetime());
+            Assert.IsNull(go.GetComponent<LifetimeBehaviour>(), "a component that could never be told it ended");
+        }
+
+        [Test]
+        public void GetLifetime_OnAnObjectDeactivatedAfterItsScopeWasCreated_ReturnsThatScope()
+        {
+            var go = Create("object");
+            var lifetime = go.GetLifetime();
+            go.SetActive(false);
+
+            Assert.AreSame(lifetime, go.GetLifetime());
+        }
+
+        [Test]
+        public void GetLifetime_OnADestroyedObject_Throws()
+        {
+            var go = Create("object");
+            Object.DestroyImmediate(go);
+
+            Assert.Throws<ArgumentNullException>(() => go.GetLifetime());
+        }
+
+        [Test]
+        public void LifetimeBehaviour_BeforeAwake_Throws()
+        {
+            var go = Create("inactive");
+            go.SetActive(false);
+            var behaviour = go.AddComponent<LifetimeBehaviour>();
+
+            Assert.Throws<InvalidOperationException>(() => { var _ = behaviour.Lifetime; });
+        }
+
+        [Test]
+        public void LifetimeBehaviour_EndsWithThePlaySession()
+        {
+            var lifetime = Create("object").GetLifetime();
+
+            EndThePlaySession();
+
+            Assert.IsTrue(lifetime.IsTerminated);
+        }
+
+        // ------------------------------------------------------------------ SignalMonoBehaviour (UH-10, CC-27)
+
+        [Test]
+        public void SignalMonoBehaviour_OnANeverActivatedObject_ItsSignalsThrow_InsteadOfLeakingAScope()
+        {
+            var go = Create("inactive");
+            go.SetActive(false);
+            var component = go.AddComponent<SignalMonoBehaviour>();
+
+            Assert.Throws<InvalidOperationException>(() => { var _ = component.StartSignal; });
+            Assert.Throws<InvalidOperationException>(() => { var _ = component.EnableSignal; });
+            Assert.Throws<InvalidOperationException>(() => { var _ = component.DisableSignal; });
+            Assert.Throws<InvalidOperationException>(() => { var _ = component.DestroySignal; });
+        }
+
+        [Test]
+        public void SignalMonoBehaviour_ActivatedLater_HasItsSignalsFromAwake()
+        {
+            var go = Create("inactive");
+            go.SetActive(false);
+            var component = go.AddComponent<SignalMonoBehaviour>();
+
+            go.SetActive(true);
+            var disabled = 0;
+            component.DisableSignal.Subscribe(Lifetime.Eternal, () => disabled++);
+            go.SetActive(false);
+
+            Assert.AreEqual(1, disabled);
+        }
+
+        [Test]
+        public void SignalMonoBehaviour_DestroySignal_FiresOnce_WhenThePlaySessionEndsFirst()
+        {
+            var component = Create("signals").AddComponent<SignalMonoBehaviour>();
+            var destroyed = 0;
+            component.DestroySignal.Subscribe(Lifetime.Eternal, () => destroyed++);
+
+            EndThePlaySession();
+            Object.DestroyImmediate(component.gameObject);
+
+            Assert.AreEqual(1, destroyed);
+        }
+
         // ------------------------------------------------------------------ SignalMonoBehaviour (UH-9)
 
         [Test]

@@ -177,6 +177,35 @@ The session ends at `Application.quitting`, before Unity destroys the scene, so 
 newest first while every object is still alive. `ContextBehaviour.OnQuit` fires once on the way out, before
 the context is disposed.
 
+**A GameObject's lifetime.** `gameObject.GetLifetime()` returns a scope that ends when the GameObject is
+destroyed or the play session ends, whichever comes first, kept by a `LifetimeBehaviour` it adds the first
+time. Use it instead of writing that component yourself:
+
+```csharp
+using OpenUGD;
+using OpenUGD.Core;
+using UnityEngine;
+
+public class ScoreLabel : MonoBehaviour
+{
+    public TextMesh Label;
+
+    // Awake or later: the scope exists from the GameObject's Awake.
+    private void Start() => Scores.Changed.Subscribe(gameObject.GetLifetime(), score => Label.text = score.ToString());
+}
+
+public static class Scores
+{
+    public static readonly Signal<int> Changed = new Signal<int>(PlaySession.Lifetime);
+}
+```
+
+The scope is created in `Awake` and nowhere earlier, because Unity never sends `OnDestroy` to a GameObject that
+was never active, so a scope created before that might never end; on such a GameObject `GetLifetime` throws
+instead. `ViewBehaviour.Lifetime`, `SignalMonoBehaviour`'s signals and `ContextBehaviour.Lifetime` follow the
+same rules: they exist from `Awake`, are nested in the play session, end in `OnDestroy`, and throw
+`InvalidOperationException` if read before `Awake`.
+
 `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` handle Unity's messages — `Awake`, `Update`,
 `OnDestroy` and the rest — as `protected virtual` methods. Override one and call `base`: the base method is
 what creates the scope, fires the signal or ends the scope. Declaring one without `override` hides it, and the
@@ -189,7 +218,7 @@ The package holds five runtime assemblies, one per concern, each named as if it 
 
 | Assembly | What it holds | References | UnityEngine |
 | --- | --- | --- | --- |
-| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `PlaySession`, the coroutine and `SynchronizationContext` seams, and `ContextPresenterFactory`, which adapts presenters to the context. | lifetime, signal, context, presenters | yes; no uGUI |
+| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `PlaySession`, `LifetimeBehaviour`, the coroutine and `SynchronizationContext` seams, and `ContextPresenterFactory`, which adapts presenters to the context. | lifetime, signal, context, presenters | yes; no uGUI |
 | `com.openugd.presenters` | The presenter tree and `IPresenterFactory`. | lifetime | no |
 | `com.openugd.commands` | The command map. | lifetime, context | no |
 | `com.openugd.logging` | Tagged logging and its sink interface. | nothing | no |
@@ -215,6 +244,7 @@ This is the whole public surface of the package.
 | Type | Assembly | Namespace | Purpose |
 | --- | --- | --- | --- |
 | `ContextBehaviour` | `com.openugd.corelib` | `OpenUGD.Core` | MonoBehaviour entry point: owns the `Lifetime`, builds the `Context`, exposes the Unity loop as signals, and surfaces the boot as an awaitable `Startup`. |
+| `LifetimeBehaviour`, `GameObjectLifetimeExtensions` | `com.openugd.corelib` | `OpenUGD.Core` | The scope of a GameObject, from `Awake` to `OnDestroy`: `gameObject.GetLifetime()`. |
 | `PlaySession` | `com.openugd.corelib` | `OpenUGD.Core` | The scope of one play session: ends when the application quits or play mode is exited, and starts clean with domain reload disabled. |
 | `ContextBehaviourEditor` | `com.openugd.corelib.editor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
 | `ViewBehaviour` | `com.openugd.corelib` | `OpenUGD.Presenters` | A MonoBehaviour whose public `Lifetime` ends in `OnDestroy`; `presenter.CloseWith(view.Lifetime)` ties a presenter to it. |

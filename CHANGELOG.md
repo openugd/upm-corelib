@@ -166,6 +166,13 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   destroys the scene; entering edit mode ends it as a backstop. Between sessions it returns the ended
   lifetime, so a scope created during shutdown is born terminated; in edit mode it is a session of its own
   that ends when play mode starts. See *Fixed* for why.
+- `LifetimeBehaviour` and `gameObject.GetLifetime()` / `component.GetLifetime()` (`OpenUGD.Core`): the scope of
+  a GameObject, created in `Awake`, nested in `PlaySession.Lifetime` and ended in `OnDestroy` — the one tested
+  GameObject-lifetime adapter, in place of the hand-written copies in samples and projects (audit LS-14).
+  `GetLifetime` adds the sealed, one-per-GameObject component the first time and returns the same scope after
+  that; on a GameObject that has never been active, or outside play mode, it throws
+  `InvalidOperationException` and adds nothing, because Unity would never tell that component the object was
+  destroyed. `ViewBehaviour`, `SignalMonoBehaviour` and `ContextBehaviour` follow the same rules.
 - `ContextBehaviourEditor` — shows `Startup.Status`, the failure message if it faulted, and whether
   `Context` is built. Before 2.0.0 a context that failed to start looked identical in the inspector to
   one that started fine.
@@ -215,12 +222,14 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
   sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
-  23 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which
-  code implements `ICoroutineProvider`, and `PlaySession`, including that nothing else in the assembly roots a
-  scope in `Lifetime.Eternal`), and 22 marked `RequiresUnity` cover `ViewBehaviour`'s scope and `CloseWith`, a
-  destroyed view skipping `Refresh`, `PersistAcrossScenes` on a root and on a child, a boot cancelled by
-  destruction, a failing `OnStarted` and a failing `Rebuild` teardown, overrides that call `base`, coroutines
-  through `ICoroutineProvider`, and component scopes and `OnQuit` at the end of the play session.
+  26 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which
+  code implements `ICoroutineProvider`, `PlaySession`, including that nothing else in the assembly roots a
+  scope in `Lifetime.Eternal`, and that no component property creates a scope), and 32 marked
+  `RequiresUnity` cover `ViewBehaviour`'s scope and `CloseWith`, a destroyed view skipping `Refresh`,
+  `PersistAcrossScenes` on a root and on a child, a boot cancelled by destruction, a failing `OnStarted` and
+  a failing `Rebuild` teardown, overrides that call `base`, coroutines through `ICoroutineProvider`, component
+  scopes and `OnQuit` at the end of the play session, `GetLifetime` and `LifetimeBehaviour`, and
+  `SignalMonoBehaviour` on a GameObject that is never activated.
 
 ### Changed
 
@@ -488,6 +497,15 @@ rename entry near the top of this section for the full table.
 - **A write allocates nothing of its own** (audit UH-17). A derived logger rebuilt its tag path, one string
   per tag segment, for every record that passed its own filter — before the root's filter could still drop it.
   The path is now built once, when the logger is derived, and the one level test includes the root's.
+- **`SignalMonoBehaviour` no longer leaves a scope behind on a GameObject that is never activated** (audit
+  UH-10, CC-27). Its signal properties created the scope on first read, so reading one on an inactive
+  GameObject that was then destroyed without ever being activated — which Unity does without `OnDestroy` —
+  left the scope and every subscriber on it alive. The scope and the signals are now created in `Awake`
+  only. **Breaking:** reading a signal before `Awake` throws `InvalidOperationException`; subscribe once the
+  GameObject has been active (`AddComponent` on an active GameObject runs `Awake` before it returns).
+  `DestroySignal` is raised when the component's scope ends — from `OnDestroy`, or earlier when the play
+  session ends — so it still fires once when the application quits; `DisableSignal` is not raised for the
+  deactivation that follows the end of the session.
 - **Nothing in corelib roots a scope in `Lifetime.Eternal` any more** (audit UH-11, LS-19, CX-21).
   `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` nested their scopes in `Lifetime.Eternal`, a
   static field, so with domain reload disabled (*Enter Play Mode Options*) a component Unity never destroyed —
