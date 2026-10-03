@@ -18,18 +18,11 @@ namespace OpenUGD.Utils.Components
     /// <para>
     /// <b>Awake first.</b> The signals exist from <c>Awake</c>, which Unity runs inside <c>AddComponent</c> on an
     /// active GameObject, and when an inactive one is first activated. Reading a signal before that throws
-    /// <see cref="System.InvalidOperationException"/>. <i>Changed in 2.0.0</i> — a signal property read before
-    /// <c>Awake</c> created the scope on <see cref="Lifetime.Eternal"/>, and on a GameObject that was never
-    /// activated — so never received <c>OnDestroy</c> — that scope, and every subscriber on it, stayed for the
-    /// rest of the process (audit UH-10, CC-27).
+    /// <see cref="System.InvalidOperationException"/>.
     /// </para>
     /// <para>
-    /// <b>Breaking changes in 2.0.0.</b> <c>UpdateSignal</c>, <c>LateUpdateSignal</c>,
-    /// <c>FixedUpdateSignal</c> and <c>AwakeSignal</c> are removed. The three per-frame signals cost an
-    /// engine message dispatch on every instance every frame whether or not anyone subscribed, because Unity
-    /// dispatches to any component that merely defines the method; subscribe to a central update source
-    /// instead. <c>AwakeSignal</c> could never fire to a subscriber at all: <c>AddComponent</c> runs
-    /// <c>Awake</c> before it returns the reference you would subscribe through.
+    /// <b>No per-frame signals.</b> Unity dispatches <c>Update</c> to every component that defines it, subscribers
+    /// or not; subscribe to a central source such as <c>ContextBehaviour.OnUpdate</c> instead.
     /// </para>
     /// <para>
     /// <b>Subclassing.</b> <see cref="Awake"/>, <see cref="Start"/>, <see cref="OnEnable"/>,

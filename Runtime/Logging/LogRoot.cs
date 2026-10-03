@@ -217,10 +217,8 @@ namespace OpenUGD.Logging
         /// once, and on a root that never had a sink.
         /// </summary>
         /// <remarks>
-        /// <b>Changed in 2.0.0.</b> This used to throw <c>NotImplementedException</c>, which turned a
-        /// context's ordinary teardown into a failure: <c>OpenUGD.Context</c> disposes every service it
-        /// constructed that implements <see cref="IDisposable"/>. Detaching the sinks is a real teardown, so
-        /// that is what disposing does.
+        /// A context disposes every service it constructed that implements <see cref="IDisposable"/>, so a root
+        /// registered with <c>Add&lt;LogRoot&gt;()</c> is detached when its context ends.
         /// </remarks>
         public void Dispose()
         {

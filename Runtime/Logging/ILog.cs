@@ -67,12 +67,6 @@ namespace OpenUGD.Logging
     /// <b>Not disposable.</b> A logger holds nothing to release, so a container that disposes what it built
     /// leaves loggers alone. <see cref="LogRoot"/>, which owns the sinks, is disposable on its own account.
     /// </para>
-    /// <para>
-    /// <i>Changed in 2.0.0</i> — the write methods were <c>V</c>, <c>I</c>, <c>W</c>, <c>E</c>, <c>D</c> and
-    /// <c>F</c>, taking <c>dynamic</c>; the interface extended <see cref="IDisposable"/>, and disposing a derived
-    /// logger made every later write on it throw <see cref="NullReferenceException"/>. The package CHANGELOG
-    /// lists each change.
-    /// </para>
     /// </remarks>
     public interface ILog
     {

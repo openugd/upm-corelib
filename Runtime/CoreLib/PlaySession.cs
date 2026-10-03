@@ -10,11 +10,10 @@ namespace OpenUGD.Core
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Why.</b> <see cref="OpenUGD.Lifetime.Eternal"/> is a static field, so with domain reload disabled
-    /// (<i>Enter Play Mode Options</i>) it survives from one play session to the next together with every scope
-    /// still nested in it: a context, a subscription or a service rooted there keeps running into the next
-    /// session, or into edit mode. Everything nested in this lifetime instead ends with the session, and the next
-    /// session starts clean whether or not the domain was reloaded (audit UH-11, LS-19, CX-21).
+    /// <b>Instead of <see cref="OpenUGD.Lifetime.Eternal"/>.</b> <see cref="OpenUGD.Lifetime.Eternal"/> is a static
+    /// field, so with domain reload disabled (<i>Enter Play Mode Options</i>) it survives from one play session to
+    /// the next together with every scope still nested in it. Everything nested in this lifetime ends with the
+    /// session, and the next session starts clean whether or not the domain was reloaded.
     /// </para>
     /// <para>
     /// <b>Who uses it.</b> <see cref="LifetimeBehaviour"/> (<c>gameObject.GetLifetime()</c>),

@@ -19,17 +19,11 @@ namespace OpenUGD.Core
     /// <c>OnDestroy</c> terminates the definition, which terminates the signals and — provided
     /// <see cref="CreateContextAsync"/> built the context under <see cref="Lifetime"/> — the context too. So does
     /// the end of the play session, which comes first when the application quits or play mode is exited.
-    /// <i>Changed in 2.0.0</i> — the definition was nested in <see cref="OpenUGD.Lifetime.Eternal"/>, so with
-    /// domain reload disabled a behaviour Unity never destroyed kept its scope, and its context, into the next
-    /// play session (audit UH-11).
     /// </para>
     /// <para>
-    /// <b>Breaking change in 2.0.0.</b> The boot is no longer a discarded <c>Task</c>. It is
-    /// <see cref="Startup"/>: owned, awaitable and observable, so a failure surfaces through
-    /// <see cref="OnStartFailed"/> <i>and</i> faults <see cref="Startup"/> instead of vanishing. An
-    /// integration test can therefore <c>await behaviour.Startup</c> and see the real exception. This class
-    /// replaces the 0.6.x <c>ContextFactoryComponent</c>, whose synchronous <c>CreateContext()</c> seam is
-    /// gone with no shim: override <see cref="CreateContextAsync"/> instead.
+    /// <b>The boot</b> is <see cref="Startup"/>: a failure reaches <see cref="OnStartFailed"/> <i>and</i> faults
+    /// <see cref="Startup"/>, so an integration test can <c>await behaviour.Startup</c> and see the real
+    /// exception.
     /// </para>
     /// <para>
     /// <b>Subclassing.</b> The Unity messages this class handles — <see cref="Awake"/>, <see cref="Update"/>,
@@ -52,8 +46,7 @@ namespace OpenUGD.Core
     /// <see cref="MonoBehaviour.StartCoroutine(IEnumerator)"/>, still callable on the class, returns
     /// <c>null</c> instead. It works from the boot, which <c>Awake</c> runs, and it returns a handle even for a
     /// coroutine that finishes in its first step, as <see cref="CoroutineProvider"/> does — which also says how
-    /// to stop one. <i>Changed in 2.0.0</i> — the interface was satisfied by that inherited method, so a
-    /// coroutine scheduled on an inactive context silently never ran (audit CC-8).
+    /// to stop one.
     /// </para>
     /// <para>
     /// <b>Ordering.</b> Nothing here waits for the boot. The six signals exist from <c>Awake</c> and fire
@@ -110,10 +103,6 @@ namespace OpenUGD.Core
         /// Unity keeps only root objects across scene loads. On a GameObject that has a parent, <c>true</c>
         /// changes nothing — the object lives and dies with its root — and a warning says so; move the
         /// behaviour to a root object, or return <c>false</c>.
-        /// </para>
-        /// <para>
-        /// <i>Changed in 2.0.0</i> — <c>DontDestroyOnLoad</c> was unconditional, so a scene-scoped context
-        /// needed a workaround (audit CC-7).
         /// </para>
         /// </remarks>
         protected virtual bool PersistAcrossScenes => true;
@@ -182,8 +171,7 @@ namespace OpenUGD.Core
         /// Called on the main thread once the context is built, immediately before <see cref="Startup"/>
         /// completes. <see cref="Context"/> is already set. Throwing here is a boot failure like any other: the
         /// context is disposed, <see cref="Context"/> is <c>null</c> again, then <see cref="OnStartFailed"/> runs
-        /// and <see cref="Startup"/> faults. <i>Changed in 2.0.0</i> — the context stayed published and alive
-        /// after a failed <see cref="OnStarted"/> (audit CC-28).
+        /// and <see cref="Startup"/> faults.
         /// </summary>
         /// <param name="context">The context just built; never <c>null</c>.</param>
         protected virtual void OnStarted(Context context)
@@ -192,7 +180,7 @@ namespace OpenUGD.Core
 
         /// <summary>
         /// Called when the boot fails, before <see cref="Startup"/> faults. The default logs the exception,
-        /// which is the minimum that makes a failed boot visible; override to show a error screen or to
+        /// which is the minimum that makes a failed boot visible; override to show an error screen or to
         /// quit. Destroying the GameObject mid-boot is ordinary teardown and does <b>not</b> reach here.
         /// </summary>
         /// <param name="exception">The failure. Never <c>null</c>.</param>
@@ -213,9 +201,7 @@ namespace OpenUGD.Core
         /// <b>A failing teardown does not stop the new boot.</b> If terminating the old scope throws — a service
         /// that fails to dispose, say — the old scope is terminated anyway, the new scope and boot are started,
         /// and then the teardown's exception is rethrown to the caller, as <see cref="OpenUGD.Lifetime"/> reports
-        /// it: one failure as itself, several as an <see cref="AggregateException"/>. <i>Changed in 2.0.0</i> —
-        /// the exception escaped before the new boot started, leaving the behaviour with a dead scope, no boot
-        /// and a disposed <see cref="Context"/> still published (audit CC-28).
+        /// it: one failure as itself, several as an <see cref="AggregateException"/>.
         /// </para>
         /// </remarks>
         /// <exception cref="Exception">Terminating the old scope threw; the new boot has started.</exception>

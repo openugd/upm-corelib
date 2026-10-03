@@ -119,8 +119,7 @@ namespace OpenUGD.Logging
         /// <param name="lifetime">The scope the subscription lives inside — typically the context's, so
         /// the console stops receiving records when that context is torn down.</param>
         /// <exception cref="System.ArgumentNullException"><paramref name="logger"/> or
-        /// <paramref name="lifetime"/> is <c>null</c>. <i>Changed in 2.0.0</i> — neither was checked, and a
-        /// <c>null</c> surfaced as a <see cref="System.NullReferenceException"/>.</exception>
+        /// <paramref name="lifetime"/> is <c>null</c>.</exception>
         public static void UseUnityConsole(this LogRoot logger, Lifetime lifetime)
         {
             if (logger == null)

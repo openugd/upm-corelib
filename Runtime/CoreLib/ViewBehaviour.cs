@@ -23,12 +23,6 @@ namespace OpenUGD.Presenters
     /// Override them and call <c>base</c> — <c>base.Awake()</c> first, since it creates <see cref="Lifetime"/>.
     /// Declaring either without <c>override</c> hides it, which the compiler reports as warning CS0114.
     /// </para>
-    /// <para>
-    /// <i>Changed in 2.0.0</i> - there is no <c>IWidgetView</c> interface any more. Requiring every view to
-    /// implement one cut off every leaf presenter over a Unity component, because
-    /// <c>UnityEngine.UI.Button</c> cannot implement our interface. Liveness is a property of the
-    /// presenter's own scope, not of the view type.
-    /// </para>
     /// </remarks>
     public class ViewBehaviour : MonoBehaviour
     {
@@ -39,12 +33,6 @@ namespace OpenUGD.Presenters
         /// terminated in <c>OnDestroy</c> or when the play session ends, whichever comes first. Hand it to whatever
         /// must end with the view — <c>presenter.CloseWith(view.Lifetime)</c>, for a presenter.
         /// </summary>
-        /// <remarks>
-        /// <i>Changed in 2.0.0</i> — this was <c>protected</c>, so nothing outside the view could bind to its
-        /// destruction, although that was the documented purpose of the class (audit CC-5). It was nested in
-        /// <see cref="OpenUGD.Lifetime.Eternal"/>, so a view Unity never destroyed kept it into the next play session
-        /// when domain reload was disabled (audit UH-11).
-        /// </remarks>
         /// <exception cref="InvalidOperationException">
         /// <c>Awake</c> has not run: the GameObject has never been active, or a subclass's <c>Awake</c> did not
         /// call <c>base.Awake()</c>.
@@ -56,10 +44,6 @@ namespace OpenUGD.Presenters
         /// Unity's <c>Awake</c>: creates <see cref="Lifetime"/>. <b>Call <c>base.Awake()</c> first</b> when
         /// overriding.
         /// </summary>
-        /// <remarks>
-        /// <i>Changed in 2.0.0</i> — this replaces the <c>OnAwake</c> hook, which existed only because
-        /// <c>Awake</c> was private.
-        /// </remarks>
         protected virtual void Awake()
         {
             if (_definition == null)

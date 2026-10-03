@@ -18,9 +18,7 @@ namespace OpenUGD.Utils
     /// Returning <c>null</c> would hand the caller a "success" it cannot distinguish from a silent no-op, and
     /// callers routinely discard the return value. That includes a coroutine that finishes inside the call — its
     /// first step is its last — for which Unity's own <c>StartCoroutine</c> returns <c>null</c>: the
-    /// implementations in this package return a handle for it too. <i>Changed in 2.0.0</i> —
-    /// <see cref="CoroutineProvider"/> used to return <c>null</c> for an inactive host, so the scheduled work
-    /// simply never ran and nothing said so.
+    /// implementations in this package return a handle for it too.
     /// </para>
     /// <para>
     /// <b>Lifetime.</b> A coroutine is bound to the host object, not to a <see cref="Lifetime"/>. It stops

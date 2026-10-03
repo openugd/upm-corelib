@@ -9,18 +9,8 @@ namespace OpenUGD.Presenters
     /// <see cref="Presenter{TView}"/>; the typed members are public on that class.
     /// </summary>
     /// <remarks>
-    /// <para>
-    /// Two members, both of which exist for exactly one caller shape: a presenter-opening service that knows
-    /// the presenter only as a <see cref="Presenter"/>, has to find out what component to load
-    /// (<see cref="ViewType"/>), and then has to hand it over (<see cref="SetView"/>).
-    /// </para>
-    /// <para>
-    /// <i>Changed in 2.0.0</i> — <c>object View</c>, <c>OnViewAdded</c>, <c>OnViewBeforeRemove</c> and
-    /// <c>OnViewAfterRemoved</c> were removed. They had no caller through this interface: the hooks are
-    /// <c>protected virtual</c> members of <see cref="Presenter{TView}"/> and are invoked by the class, so
-    /// declaring them here only published a way to fire a presenter's own lifecycle callbacks from outside
-    /// it.
-    /// </para>
+    /// For a presenter-opening service that knows the presenter only as a <see cref="Presenter"/>: it finds out
+    /// what component to load (<see cref="ViewType"/>), then hands it over (<see cref="SetView"/>).
     /// </remarks>
     public interface IPresenterWithView
     {
@@ -38,9 +28,8 @@ namespace OpenUGD.Presenters
         /// An instance assignable to <see cref="ViewType"/>, or <c>null</c> to detach.
         /// </param>
         /// <exception cref="ArgumentException"><paramref name="view"/> is not assignable to
-        /// <see cref="ViewType"/>. The message names the presenter, its view type and the type it was given.
-        /// <i>Changed in 2.0.0</i> — this was an <see cref="InvalidCastException"/> that named neither the
-        /// presenter nor the parameter.</exception>
+        /// <see cref="ViewType"/>. The message names the presenter, its view type and the type it was
+        /// given.</exception>
         /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
         void SetView(object view);
     }
@@ -49,13 +38,6 @@ namespace OpenUGD.Presenters
     /// The non-generic face of a presenter that has a model. Implemented explicitly by
     /// <see cref="Presenter{TView,TModel}"/>.
     /// </summary>
-    /// <remarks>
-    /// <i>Changed in 2.0.0</i> — <c>ModelChanged</c>, <c>object Model</c>, <c>OnBeforeModelChange</c> and
-    /// <c>OnAfterModelChanged</c> were removed, and this interface no longer derives from
-    /// <see cref="IPresenterWithView"/>. <c>ModelChanged</c> existed solely to drive the deleted
-    /// <c>OnReady</c> latch; the two hooks are the class's own <c>protected virtual</c> members; and a model
-    /// does not imply a view.
-    /// </remarks>
     public interface IPresenterWithModel
     {
         /// <summary>
@@ -65,9 +47,7 @@ namespace OpenUGD.Presenters
         /// <see cref="Nullable{T}"/>.</param>
         /// <exception cref="ArgumentException"><paramref name="model"/> is not assignable to the presenter's
         /// <c>TModel</c>, or is <c>null</c> and <c>TModel</c> is a non-nullable value type. The message names the
-        /// presenter, its model type and what it was given. <i>Changed in 2.0.0</i> — this was an
-        /// <see cref="InvalidCastException"/>, or a <see cref="NullReferenceException"/> for a <c>null</c> value
-        /// type, that named neither the presenter nor the parameter.</exception>
+        /// presenter, its model type and what it was given.</exception>
         void SetModel(object model);
     }
 
@@ -135,14 +115,6 @@ namespace OpenUGD.Presenters
     /// <para>
     /// <b>Engine-free.</b> Nothing in this assembly references <c>UnityEngine</c>. A presenter tree can be
     /// built, driven and asserted on in a plain unit test, with a hand-written <see cref="IPresenterFactory"/>.
-    /// </para>
-    /// <para>
-    /// <b>Breaking changes in 2.0.0.</b> <c>OnReady</c> is gone — see
-    /// <see cref="Presenter{TView}.OnRefresh"/> for why and for what replaces it. <c>ISubscribeNotify</c>,
-    /// <c>Presenter.Internal.Ready</c> and the per-presenter notification <c>Signal</c> that existed only to
-    /// drive it are gone with it. The presenter no longer implements <c>IResolve</c>/<c>IInject</c> from the
-    /// deprecated dependency-injection package, and does not expose a container either: use an injected member.
-    /// <c>Children</c> is a live view rather than a fresh array per call.
     /// </para>
     /// </remarks>
     public abstract class Presenter : IDisposable
@@ -468,17 +440,6 @@ namespace OpenUGD.Presenters
     /// replaced or detached, and a re-attached view would be subscribed twice.
     /// </para>
     /// <para>
-    /// <b>Why <c>OnReady</c> was deleted.</b> It was two mechanisms that disagreed. A child added through
-    /// <see cref="Presenter.AddPresenter{T}"/> got a latch that waited for both a view and a model; a
-    /// presenter opened by one of the 0.6.x UI services got a direct push that never looked at the model; and
-    /// <see cref="Presenter.Root"/> got neither, so its <c>OnReady</c> never fired at all. Which of the three
-    /// you got depended on how the presenter happened to be created — the exact shape of "keeps running while
-    /// doing the wrong thing". The presenters showed what was actually wanted: one of them wrote the same
-    /// render logic twice, in <c>OnAfterModelChanged</c> and again in <c>OnReady</c>, because neither hook
-    /// alone guaranteed both halves; another set its sprite in <c>OnReady</c> and never updated it again.
-    /// Both are one correct <see cref="OnRefresh"/>.
-    /// </para>
-    /// <para>
     /// <b><see cref="OnRefresh"/> only ever runs while this presenter is live</b> — see <see cref="IsLive"/> —
     /// which is why a presenter body needs no <c>View != null</c> guard.
     /// </para>
@@ -550,10 +511,6 @@ namespace OpenUGD.Presenters
         /// whose types are not ours, such as <c>UnityEngine.UI.Button</c>. For any other view type,
         /// <c>Equals(null)</c> is <c>false</c> by the .NET contract, so only the first two conditions apply.
         /// </para>
-        /// <para>
-        /// <i>Changed in 2.0.0</i> — this was <c>View != null</c>, a reference comparison that took a destroyed
-        /// Unity view for a live one (audit UH-12).
-        /// </para>
         /// </remarks>
         protected bool IsLive => View != null && !Lifetime.IsTerminated && !View.Equals(null);
 
@@ -589,11 +546,6 @@ namespace OpenUGD.Presenters
         /// the view. That makes a late view harmless, which is the ordinary case for a host whose view finished
         /// loading after the presenter was closed; such a host releases the view through a clean-up registered on
         /// <see cref="Presenter.Lifetime"/>, which runs at once on a closed presenter.
-        /// </para>
-        /// <para>
-        /// <i>Changed in 2.0.0</i> — <c>OnViewAfterRemoved</c> no longer fires on the first attach, when
-        /// there was no previous view to remove. A view set before attach used to be half-applied, and every
-        /// later <see cref="Refresh"/> threw (audit CC-10).
         /// </para>
         /// </remarks>
         /// <param name="view">The view to attach, or <c>null</c> to detach.</param>

@@ -9,14 +9,12 @@ namespace OpenUGD.Core
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>The one adapter.</b> Binding something to a GameObject's destruction takes a component that receives
-    /// <c>OnDestroy</c>, and every hand-written copy of that component has had to get the same four things right
-    /// (audit LS-14): the scope is created in <c>Awake</c>, never from a field initializer or a getter, because
+    /// <b>The rules.</b> The scope is created in <c>Awake</c>, never from a field initializer or a getter, because
     /// Unity never sends <c>OnDestroy</c> to an object that was never activated; it is nested in the play session,
     /// not in <see cref="Lifetime.Eternal"/>; it ends in <c>OnDestroy</c>; and reading it before <c>Awake</c>
-    /// throws instead of handing back a scope that nothing will end. This is that component, and
-    /// <see cref="Presenters.ViewBehaviour"/>, <see cref="Utils.Components.SignalMonoBehaviour"/> and
-    /// <see cref="ContextBehaviour"/> follow the same rules.
+    /// throws instead of handing back a scope that nothing will end. <see cref="Presenters.ViewBehaviour"/>,
+    /// <see cref="Utils.Components.SignalMonoBehaviour"/> and <see cref="ContextBehaviour"/> follow the same
+    /// rules.
     /// </para>
     /// <para>
     /// <b>Sealed</b>, with Unity's messages private, so no subclass can hide them. To give a component of your own

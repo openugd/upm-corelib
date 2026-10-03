@@ -40,12 +40,9 @@ namespace OpenUGD.Utils
     /// <see cref="SynchronizationContext"/>.
     /// </summary>
     /// <remarks>
-    /// <b>Changed in 2.0.0.</b> The constructor now rejects a <c>null</c> context. Capturing
-    /// <see cref="SynchronizationContext.Current"/> is the usual way to build one of these, and
-    /// <c>Current</c> is <c>null</c> on any thread that has no installed context — including a plain
-    /// <see cref="Thread"/> or a thread-pool thread. The null used to be stored and every later
-    /// <see cref="Send"/>/<see cref="Post"/> threw a <see cref="NullReferenceException"/> with no trace of
-    /// where the bad context came from. Capture it on the main thread, during boot.
+    /// Capture <see cref="SynchronizationContext.Current"/> on the main thread, during boot. On a thread that has
+    /// no installed context — a plain <see cref="Thread"/> or a thread-pool thread — <c>Current</c> is
+    /// <c>null</c>, which the constructor rejects.
     /// </remarks>
     public sealed class SynchronizationContextWrapper : ISynchronizationContext
     {
