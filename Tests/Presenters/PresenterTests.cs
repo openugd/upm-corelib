@@ -287,6 +287,156 @@ namespace OpenUGD.Presenters.Tests
             Assert.AreEqual("a", replacement.Rendered, "the replacement view renders the current model");
         }
 
+        // ------------------------------------------------------------------ guards
+
+        [Test]
+        public void SetView_ThroughTheInterface_WithTheWrongType_NamesThePresenterAndBothTypes()
+        {
+            var presenter = CreateRoot().AddPresenter(new ViewPresenter());
+
+            var thrown = Assert.Throws<ArgumentException>(() => ((IPresenterWithView)presenter).SetView("not a view"));
+
+            Assert.AreEqual("view", thrown.ParamName);
+            StringAssert.Contains("PresenterTests.ViewPresenter", thrown.Message);
+            StringAssert.Contains("PresenterTests.FakeView", thrown.Message);
+            StringAssert.Contains("System.String", thrown.Message);
+            Assert.IsNull(presenter.View, "a rejected view must not be stored");
+            Assert.AreEqual(0, presenter.ViewAddedCount);
+        }
+
+        [Test]
+        public void SetView_ThroughTheInterface_WithNull_Detaches()
+        {
+            var presenter = CreateRoot().AddPresenter(new ViewPresenter());
+            presenter.SetView(new FakeView());
+
+            ((IPresenterWithView)presenter).SetView(null);
+
+            Assert.IsNull(presenter.View);
+        }
+
+        [Test]
+        public void SetModel_ThroughTheInterface_WithTheWrongType_NamesThePresenterAndBothTypes()
+        {
+            var presenter = CreateRoot().AddPresenter(new ListModelPresenter());
+
+            var thrown = Assert.Throws<ArgumentException>(() => ((IPresenterWithModel)presenter).SetModel(42));
+
+            Assert.AreEqual("model", thrown.ParamName);
+            StringAssert.Contains("PresenterTests.ListModelPresenter", thrown.Message);
+            StringAssert.Contains("System.Collections.Generic.List<System.Int32>", thrown.Message,
+                "types are spelled the C# way, not as List`1[[System.Int32, ...]]");
+            StringAssert.Contains("System.Int32", thrown.Message);
+        }
+
+        [Test]
+        public void SetModel_ThroughTheInterface_WithNullForAValueType_NamesTheProblem()
+        {
+            var presenter = CreateRoot().AddPresenter(new IntModelPresenter());
+            presenter.SetModel(7);
+
+            var thrown = Assert.Throws<ArgumentException>(() => ((IPresenterWithModel)presenter).SetModel(null));
+
+            StringAssert.Contains("PresenterTests.IntModelPresenter", thrown.Message);
+            StringAssert.Contains("null", thrown.Message);
+            StringAssert.Contains("System.Int32", thrown.Message);
+            Assert.AreEqual(7, presenter.Model, "a rejected model must not replace the current one");
+        }
+
+        [Test]
+        public void SetModel_ThroughTheInterface_AcceptsNull_WhereTheModelTypeCanHoldIt()
+        {
+            var reference = CreateRoot().AddPresenter(new ModelPresenter());
+            reference.SetModel(new Payload("a"));
+            var nullable = CreateRoot().AddPresenter(new NullableModelPresenter());
+            nullable.SetModel(3);
+
+            ((IPresenterWithModel)reference).SetModel(null);
+            ((IPresenterWithModel)nullable).SetModel(null);
+            ((IPresenterWithModel)nullable).SetModel(5);
+
+            Assert.IsNull(reference.Model);
+            Assert.AreEqual(5, nullable.Model, "a boxed int is a model of an int? presenter");
+        }
+
+        [Test]
+        public void SetView_BeforeAttach_Throws_AndLeavesNothingHalfApplied()
+        {
+            var presenter = new ViewPresenter();
+
+            Assert.Throws<InvalidOperationException>(() => presenter.SetView(new FakeView()));
+            Assert.Throws<InvalidOperationException>(() => ((IPresenterWithView)presenter).SetView(new FakeView()));
+
+            Assert.IsNull(presenter.View);
+            CollectionAssert.IsEmpty(presenter.Log);
+            CreateRoot().AddPresenter(presenter);
+            presenter.SetView(new FakeView());
+            CollectionAssert.AreEqual(new[] { "initialize", "view-added", "refresh" }, presenter.Log,
+                "after a refused early SetView the presenter must behave as if nothing happened");
+        }
+
+        [Test]
+        public void SetModel_BeforeAttach_IsKept_AndRenderedOnceAViewArrives()
+        {
+            var presenter = new ModelPresenter();
+            presenter.SetModel(new Payload("early"));
+            var view = new FakeView();
+
+            CreateRoot().AddPresenter(presenter).SetView(view);
+
+            Assert.AreEqual("early", view.Rendered);
+            Assert.AreEqual(1, presenter.RefreshCount);
+        }
+
+        [Test]
+        public void SetView_AfterClose_IsIgnored()
+        {
+            var presenter = CreateRoot().AddPresenter(new ViewPresenter());
+            var first = new FakeView();
+            presenter.SetView(first);
+            presenter.Close();
+            presenter.Log.Clear();
+
+            presenter.SetView(new FakeView());
+            presenter.SetView(null);
+            ((IPresenterWithView)presenter).SetView(new FakeView());
+
+            CollectionAssert.IsEmpty(presenter.Log, "no hook runs on a closed presenter");
+            Assert.AreSame(first, presenter.View, "a closed presenter keeps what it had and takes nothing new");
+        }
+
+        [Test]
+        public void SetView_WhileThePresenterIsClosing_IsIgnored()
+        {
+            var presenter = CreateRoot().AddPresenter(new ViewPresenter());
+            presenter.SetView(new FakeView());
+            presenter.Lifetime.AddAction(() => presenter.SetView(new FakeView()));
+            presenter.Log.Clear();
+
+            presenter.Close();
+
+            CollectionAssert.AreEqual(new[] { "close" }, presenter.Log);
+        }
+
+        [Test]
+        public void IsLive_ADestroyedView_IsNotRendered_EvenWhileThePresentersScopeIsAlive()
+        {
+            // UnityEngine.Object makes a destroyed object Equals(null); FakeUnityView does the same, so this
+            // pins the engine-free half of the check. The Unity half is in com.openugd.corelib.playmode.tests.
+            var presenter = CreateRoot().AddPresenter(new UnityLikePresenter());
+            var view = new FakeUnityView();
+            presenter.SetView(view);
+            presenter.SetModel(1);
+            Assert.AreEqual(2, presenter.RefreshCount);
+
+            view.Destroyed = true;
+            presenter.SetModel(2);
+            presenter.Refresh();
+
+            Assert.AreEqual(2, presenter.RefreshCount, "OnRefresh must not write into a destroyed view");
+            Assert.IsFalse(presenter.Lifetime.IsTerminated, "the check reads the view; it does not close anything");
+        }
+
         // ------------------------------------------------------------------ ViewLifetime
 
         [Test]
@@ -1000,6 +1150,36 @@ namespace OpenUGD.Presenters.Tests
             protected override void OnInitialize() => Log.Add($"{_name}:initialize");
 
             protected override void OnClose() => Log.Add($"{_name}:close");
+        }
+
+        private sealed class ListModelPresenter : Presenter<FakeView, List<int>>
+        {
+        }
+
+        private sealed class IntModelPresenter : Presenter<FakeView, int>
+        {
+        }
+
+        private sealed class NullableModelPresenter : Presenter<FakeView, int?>
+        {
+        }
+
+        // Stands in for a UnityEngine.Object: once destroyed, it compares equal to null through Equals, exactly
+        // as UnityEngine.Object.Equals does.
+        private sealed class FakeUnityView
+        {
+            public bool Destroyed { get; set; }
+
+            public override bool Equals(object other) => other == null ? Destroyed : ReferenceEquals(this, other);
+
+            public override int GetHashCode() => 0;
+        }
+
+        private sealed class UnityLikePresenter : Presenter<FakeUnityView, int>
+        {
+            public int RefreshCount { get; private set; }
+
+            protected override void OnRefresh() => RefreshCount++;
         }
 
         private sealed class InitializeProbe : Presenter

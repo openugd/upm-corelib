@@ -31,13 +31,17 @@ namespace OpenUGD.Presenters
         Type ViewType { get; }
 
         /// <summary>
-        /// Attaches (or, with <c>null</c>, detaches) the view. Same as <see cref="Presenter{TView}.SetView"/>.
+        /// Attaches (or, with <c>null</c>, detaches) the view. Same as <see cref="Presenter{TView}.SetView"/>,
+        /// including what it does before attach and after close.
         /// </summary>
         /// <param name="view">
         /// An instance assignable to <see cref="ViewType"/>, or <c>null</c> to detach.
         /// </param>
-        /// <exception cref="InvalidCastException"><paramref name="view"/> is not assignable to
-        /// <see cref="ViewType"/>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="view"/> is not assignable to
+        /// <see cref="ViewType"/>. The message names the presenter, its view type and the type it was given.
+        /// <i>Changed in 2.0.0</i> — this was an <see cref="InvalidCastException"/> that named neither the
+        /// presenter nor the parameter.</exception>
+        /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
         void SetView(object view);
     }
 
@@ -57,10 +61,13 @@ namespace OpenUGD.Presenters
         /// <summary>
         /// Replaces the model, then refreshes the view if one is attached and alive.
         /// </summary>
-        /// <param name="model">The new model. May be <c>null</c> if <c>TModel</c> is a reference
-        /// type.</param>
-        /// <exception cref="InvalidCastException"><paramref name="model"/> is not assignable to the
-        /// presenter's <c>TModel</c>.</exception>
+        /// <param name="model">The new model. May be <c>null</c> if <c>TModel</c> is a reference type or a
+        /// <see cref="Nullable{T}"/>.</param>
+        /// <exception cref="ArgumentException"><paramref name="model"/> is not assignable to the presenter's
+        /// <c>TModel</c>, or is <c>null</c> and <c>TModel</c> is a non-nullable value type. The message names the
+        /// presenter, its model type and what it was given. <i>Changed in 2.0.0</i> — this was an
+        /// <see cref="InvalidCastException"/>, or a <see cref="NullReferenceException"/> for a <c>null</c> value
+        /// type, that named neither the presenter nor the parameter.</exception>
         void SetModel(object model);
     }
 
@@ -406,10 +413,13 @@ namespace OpenUGD.Presenters
     /// Both are one correct <see cref="OnRefresh"/>.
     /// </para>
     /// <para>
-    /// <b><see cref="OnRefresh"/> only ever runs while this presenter is live</b> — a view is attached and
-    /// the presenter's own scope has not ended — which is why a presenter body needs no <c>View != null</c>
-    /// guard. It holds because whoever creates a view must tie the presenter's <see cref="Presenter.Lifetime"/>
-    /// to that view's destruction, so a live presenter always has a live view.
+    /// <b><see cref="OnRefresh"/> only ever runs while this presenter is live</b> — see <see cref="IsLive"/> —
+    /// which is why a presenter body needs no <c>View != null</c> guard.
+    /// </para>
+    /// <para>
+    /// <b>Attach first.</b> <see cref="SetView"/> throws before the presenter is attached, and does nothing once
+    /// it has closed. <see cref="Presenter{TView,TModel}.SetModel"/> may be called at any time; it renders only
+    /// while the presenter is live.
     /// </para>
     /// </remarks>
     public abstract class Presenter<TView> : Presenter, IPresenterWithView
@@ -454,22 +464,42 @@ namespace OpenUGD.Presenters
                     "OnRefresh.");
 
         /// <summary>
-        /// True while this presenter's own scope is alive and a view is attached. <see cref="OnRefresh"/> is
-        /// skipped when this is <c>false</c>, so a presenter body never needs its own guard.
+        /// True while a view is attached, this presenter's own scope is alive, and the view has not been
+        /// destroyed. <see cref="OnRefresh"/> is skipped when this is <c>false</c>, so a presenter body never
+        /// needs its own guard.
         /// </summary>
         /// <remarks>
-        /// The view's own liveness is deliberately NOT consulted. The invariant is that whoever creates a
-        /// view ties this presenter's <see cref="Presenter.Lifetime"/> to that view's destruction —
-        /// <c>ViewBehaviour</c> terminates its scope in <c>OnDestroy</c>, and a borrowed scene view is
-        /// bridged by <c>SignalMonoBehaviour.DestroySignal</c> — so a live presenter always has a live view.
-        /// Asking the view type itself was tried and abandoned: it cannot work for views we do not own, such
-        /// as <c>UnityEngine.UI.Button</c>.
+        /// <para>
+        /// <b>The scope is the contract.</b> Whoever creates a view ties this presenter's
+        /// <see cref="Presenter.Lifetime"/> to that view's destruction — by closing the presenter when the view's
+        /// scope ends, or by attaching it to a scope that ends with the view — so a live presenter normally has a
+        /// live view.
+        /// </para>
+        /// <para>
+        /// <b>The view check is the backstop</b>, for a view whose destruction was not tied: a scene object
+        /// destroyed by a scene unload, say. It is <c>!View.Equals(null)</c>, which is Unity's own test:
+        /// <c>UnityEngine.Object</c> overrides <c>Equals</c> so that a destroyed object equals <c>null</c>, the
+        /// same comparison its <c>==</c> operator and its <c>bool</c> conversion make. That is how this assembly
+        /// asks Unity whether a view is alive without referencing <c>UnityEngine</c>, and why it works for views
+        /// whose types are not ours, such as <c>UnityEngine.UI.Button</c>. For any other view type,
+        /// <c>Equals(null)</c> is <c>false</c> by the .NET contract, so only the first two conditions apply.
+        /// </para>
+        /// <para>
+        /// <i>Changed in 2.0.0</i> — this was <c>View != null</c>, a reference comparison that took a destroyed
+        /// Unity view for a live one (audit UH-12).
+        /// </para>
         /// </remarks>
-        protected bool IsLive => View != null && !Lifetime.IsTerminated;
+        protected bool IsLive => View != null && !Lifetime.IsTerminated && !View.Equals(null);
 
         Type IPresenterWithView.ViewType => typeof(TView);
 
-        void IPresenterWithView.SetView(object view) => SetView((TView)view);
+        void IPresenterWithView.SetView(object view)
+        {
+            if (view != null && !(view is TView))
+                throw new ArgumentException(TypeNames.Rejected(this, "view", typeof(TView), view), nameof(view));
+
+            SetView((TView)view);
+        }
 
         /// <summary>
         /// Attaches (or, with <c>null</c>, detaches) the view, then refreshes.
@@ -487,13 +517,28 @@ namespace OpenUGD.Presenters
         /// stored.
         /// </para>
         /// <para>
+        /// <b>Before attach</b> it throws, before touching anything: a presenter has no scope to wire a view in
+        /// until it is attached. <b>Once the presenter has closed</b> — from the moment its lifetime starts
+        /// terminating — it does nothing: the view is not stored, no hook runs, and the caller keeps ownership of
+        /// the view. That makes a late view harmless, which is the ordinary case for a host whose view finished
+        /// loading after the presenter was closed; such a host releases the view through a clean-up registered on
+        /// <see cref="Presenter.Lifetime"/>, which runs at once on a closed presenter.
+        /// </para>
+        /// <para>
         /// <i>Changed in 2.0.0</i> — <c>OnViewAfterRemoved</c> no longer fires on the first attach, when
-        /// there was no previous view to remove.
+        /// there was no previous view to remove. A view set before attach used to be half-applied, and every
+        /// later <see cref="Refresh"/> threw (audit CC-10).
         /// </para>
         /// </remarks>
         /// <param name="view">The view to attach, or <c>null</c> to detach.</param>
+        /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
         public void SetView(TView view)
         {
+            if (!IsAttached)
+                throw new InvalidOperationException(
+                    $"{GetType().Name}.SetView was called before the presenter was attached. Attach it first - " +
+                    "Presenter.AddPresenter, Presenter.Attach - then set the model and the view.");
+            if (Lifetime.IsTerminated) return;
             if (ReferenceEquals(view, View)) return;
 
             if (View != null)
@@ -588,7 +633,23 @@ namespace OpenUGD.Presenters
         /// </summary>
         public TModel Model { get; private set; }
 
-        void IPresenterWithModel.SetModel(object model) => SetModel((TModel)model);
+        void IPresenterWithModel.SetModel(object model)
+        {
+            if (model is TModel typed)
+            {
+                SetModel(typed);
+                return;
+            }
+
+            // null is a TModel only when TModel can hold it: a reference type or a Nullable<T>.
+            if (model == null && (!typeof(TModel).IsValueType || Nullable.GetUnderlyingType(typeof(TModel)) != null))
+            {
+                SetModel(default);
+                return;
+            }
+
+            throw new ArgumentException(TypeNames.Rejected(this, "model", typeof(TModel), model), nameof(model));
+        }
 
         /// <summary>
         /// Replaces the model and re-renders.
@@ -597,7 +658,8 @@ namespace OpenUGD.Presenters
         /// In order: <see cref="OnBeforeModelChange"/> with the old model still in place, then
         /// <see cref="Model"/> is replaced, then <see cref="Presenter{TView}.Refresh"/>. Setting the same
         /// model again is not special-cased — it re-renders, which is exactly what you want when the model is
-        /// mutable.
+        /// mutable. It may be called at any time, before attach and after close included; it renders only while
+        /// the presenter is live.
         /// </remarks>
         /// <param name="model">The new model.</param>
         public void SetModel(TModel model)
@@ -615,5 +677,44 @@ namespace OpenUGD.Presenters
         {
         }
 
+    }
+
+    // The messages of the object-typed SetView/SetModel: name the presenter, what it expects and what it got, in
+    // the C# spelling of the types rather than the CLR's (List<int>, not List`1[[System.Int32, ...]]).
+    internal static class TypeNames
+    {
+        internal static string Rejected(Presenter presenter, string what, Type expected, object actual)
+        {
+            var given = actual == null ? "a null " + what : $"a {what} of type {Of(actual.GetType())}";
+            var nonNull = actual == null ? ", which cannot be null" : "";
+            return $"{Of(presenter.GetType())} cannot take {given}: its {what} type is {Of(expected)}{nonNull}.";
+        }
+
+        internal static string Of(Type type)
+        {
+            if (type.IsArray)
+                return Of(type.GetElementType()) + "[" + new string(',', type.GetArrayRank() - 1) + "]";
+            if (type.IsGenericParameter)
+                return type.Name;
+
+            var prefix = type.IsNested
+                ? Of(type.DeclaringType) + "."
+                : string.IsNullOrEmpty(type.Namespace) ? "" : type.Namespace + ".";
+            var name = type.Name;
+            var tick = name.IndexOf('`');
+            if (tick < 0)
+                return prefix + name;
+
+            // A nested type's generic arguments start with its declaring type's; its own are the last n.
+            var own = int.Parse(name.Substring(tick + 1));
+            var arguments = type.GetGenericArguments();
+            var spelled = new string[own];
+            for (var i = 0; i < own; i++)
+            {
+                spelled[i] = Of(arguments[arguments.Length - own + i]);
+            }
+
+            return prefix + name.Substring(0, tick) + "<" + string.Join(", ", spelled) + ">";
+        }
     }
 }

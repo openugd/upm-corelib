@@ -239,6 +239,10 @@ public static class ScoreScreen
 ends just before that view is detached or replaced, and when the presenter closes, so a listener registered
 on it never outlives its view and a re-attached view is wired exactly once.
 
+Attach first, then set the model and the view: `SetView` throws before the presenter is attached, and does
+nothing once it has closed. `OnRefresh` runs only while the presenter is live — a view attached, the
+presenter's scope alive, and the view not destroyed — so its body needs no `View != null` guard.
+
 **Hosts.** Code that owns the scope a presenter lives in — a window service, say — roots each presenter on a
 scope of its own with `Presenter.Attach(presenter, definition, factory)`, then calls `SetModel` and
 `SetView`. `IPresenterFactory.Create(type)` builds a presenter it knows only by type. Both are public, so a

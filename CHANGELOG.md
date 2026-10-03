@@ -189,10 +189,10 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
-  `com.openugd.presenters.tests` (61 tests over the presenter tree built with a hand-written
-  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, the deleted surface and the presenter open
-  sequence, all through public API), `com.openugd.commands.tests` (10 tests over the command mapper and its
-  stripping annotations) and `com.openugd.logging.tests` (14 tests over tag paths, the two filters, sink
+  `com.openugd.presenters.tests` (71 tests over the presenter tree built with a hand-written
+  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, the guards, the deleted surface and the
+  presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the command
+  mapper and its stripping annotations) and `com.openugd.logging.tests` (14 tests over tag paths, the two filters, sink
   fan-out and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity
   boundary; its 7 tests over `ContextPresenterFactory` need no Unity runtime.
 
@@ -265,7 +265,22 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   constraint was rejected for the opposite reason: it drags Unity into the layer and makes a plain
   test double impossible. Liveness is a property of the presenter's own scope instead. Whoever creates
   a view ties the presenter's `Lifetime` to that view's destruction — `ViewBehaviour` terminates in
-  `OnDestroy` — and `Refresh()` is skipped once the lifetime has ended.
+  `OnDestroy` — and `Refresh()` is skipped once the lifetime has ended. As a backstop it is also skipped
+  for a destroyed Unity view, which the presenters assembly detects without referencing UnityEngine
+  (see *Fixed*).
+- **Breaking: the object-typed `IPresenterWithView.SetView(object)` and
+  `IPresenterWithModel.SetModel(object)` throw `ArgumentException` for a value of the wrong type**, and
+  `SetModel` does so for `null` when the model is a non-nullable value type. The message names the
+  presenter, the type it expects and the type it was given (audit CC-9). They threw `InvalidCastException`,
+  or `NullReferenceException` for the `null`, naming neither the presenter nor the parameter. Migration:
+  catch `ArgumentException` where you caught `InvalidCastException`.
+- **Breaking: `Presenter<TView>.SetView` throws `InvalidOperationException` before the presenter is
+  attached, and does nothing once it has closed** (audit CC-10). Before attach it used to store the view
+  and run `OnViewAdded`, then throw, and every later `Refresh` threw. After close — from the moment the
+  presenter's lifetime starts terminating — the view is not stored and no hook runs, so a view that
+  finished loading after its presenter closed is harmless; the caller keeps it. Migration: attach before
+  `SetView` (`AddPresenter`/`Attach`, then `SetModel`, then `SetView`); release a late view through a
+  clean-up registered on the presenter's `Lifetime`, which runs at once on a closed presenter.
 - **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, IPresenterFactory)`.**
   Migration: `new Presenter.Root(lifetime, new ContextPresenterFactory(context))`.
 - **Breaking: presenters reference no container.** `com.openugd.presenters` references
@@ -379,6 +394,13 @@ rename entry near the top of this section for the full table.
 
 ### Fixed
 
+- **`Presenter<TView>` no longer renders into a destroyed Unity view** (audit UH-12, WG-20). `IsLive`
+  compared the view with `null` by reference, so a destroyed `UnityEngine.Object` — which Unity's own `==`
+  reports as `null` — counted as live, and `OnRefresh` wrote into it. `IsLive` now also requires
+  `!View.Equals(null)`: `UnityEngine.Object` overrides `Equals` so that a destroyed object equals `null`
+  (checked against the `UnityEngine.CoreModule` of 6000.0.41f1 and 6000.3.3f1), which lets the engine-free
+  presenters assembly ask Unity without referencing it. Other view types are unaffected: by the .NET
+  contract, `Equals(null)` is `false`.
 - **`LogRoot.Dispose()` no longer throws.** It used to throw `NotImplementedException` on purpose: the
   argument was that failing loudly beats implying a teardown that does not exist. That argument stopped
   holding once the container underneath changed. `Context` registers every constructed service that
