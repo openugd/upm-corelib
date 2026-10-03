@@ -175,7 +175,9 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   its type, and `void Inject(Presenter presenter)`, which the tree calls once for every presenter it
   attaches, before `OnInitialize`, so a presenter created with `new` still gets its injected members.
   `Create`'s parameter carries `[DynamicallyAccessedMembers]` for constructors, so a presenter type written at
-  the call site survives IL2CPP stripping.
+  the call site survives IL2CPP stripping. Checked with Unity's linker on 6000.0.41f1 and 6000.3.3f1 at Medium
+  and High: through `ContextPresenterFactory`, the constructor is kept and an `[Inject]` member is filled, with
+  no linker warning; without the annotation, the constructor is stripped and the linker warns IL2067.
 - `ContextPresenterFactory` (`com.openugd.corelib`, namespace `OpenUGD.Presenters`): the
   `IPresenterFactory` over `OpenUGD.Context` — `Context.Instantiate` and `Context.Inject`. `[Inject]` and
   `[Inject(Optional = true)]` members of presenters attached under a tree rooted with it are filled in
@@ -199,7 +201,7 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
-  `com.openugd.presenters.tests` (76 tests over the presenter tree built with a hand-written
+  `com.openugd.presenters.tests` (77 tests over the presenter tree built with a hand-written
   `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, `CloseWith`, the guards, the deleted surface
   and the presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,

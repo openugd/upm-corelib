@@ -307,6 +307,11 @@ public sealed class VContainerPresenterFactory : IPresenterFactory
 }
 ```
 
+Under IL2CPP stripping, give `Create`'s parameter the annotation `IPresenterFactory.Create` carries,
+`[DynamicallyAccessedMembers(PublicConstructors | NonPublicConstructors)]`, through an internal copy of the
+attribute as this package declares one. Without it Unity's linker reports the mismatch (IL2092) and the
+`Activator` call (IL2067).
+
 ## Logging
 
 `LogRoot` is the root of a tree of tagged loggers and fans every record out to its sinks. Derive a logger per

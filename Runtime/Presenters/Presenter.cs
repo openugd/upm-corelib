@@ -260,6 +260,12 @@ namespace OpenUGD.Presenters
         /// <see cref="IPresenterFactory.Inject"/> runs, then <see cref="OnInitialize"/>. An exception from
         /// either of the last two propagates to the caller.
         /// </para>
+        /// <para>
+        /// <b>Order of clean-up.</b> The lifetime unwinds newest first, so clean-up the caller registers on
+        /// <paramref name="definition"/> <i>before</i> the attach runs after the presenter's
+        /// <see cref="OnClose"/> — the place to return a pooled view, which the presenter must be done with —
+        /// and clean-up registered after it runs before.
+        /// </para>
         /// </remarks>
         /// <param name="presenter">The presenter to attach. Must not have been attached before.</param>
         /// <param name="definition">The scope to give it. Must still be alive: a host must check
@@ -313,9 +319,9 @@ namespace OpenUGD.Presenters
         {
         }
 
-        // Registered on the presenter's lifetime at attach, so it is the oldest entry and runs last: everything
-        // nested in the lifetime afterwards — children, the view scope, the presenter's own clean-up — has
-        // unwound by the time it runs.
+        // Registered on the presenter's lifetime at attach, so everything registered on or nested in it after the
+        // attach — children, the view scope, the presenter's own clean-up — has unwound by the time it runs, and
+        // whatever a host registered on the definition before the attach runs after it.
         private void Teardown()
         {
             OnClose();

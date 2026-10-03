@@ -964,6 +964,24 @@ namespace OpenUGD.Presenters.Tests
         }
 
         [Test]
+        public void Attach_CleanUpTheHostRegisteredBeforeTheAttach_RunsAfterOnClose()
+        {
+            // What a pooled view source relies on: it registers the view's release on the open's scope before
+            // the presenter attaches, so the release runs once the presenter is done with the view.
+            var definition = NewDefinition();
+            var log = new List<string>();
+            definition.Lifetime.AddAction(() => log.Add("host:release-view"));
+            var presenter = new TreePresenter("p", log);
+            Presenter.Attach(presenter, definition, _factory);
+            presenter.Lifetime.AddAction(() => log.Add("p:own-clean-up"));
+            log.Clear();
+
+            definition.Terminate();
+
+            CollectionAssert.AreEqual(new[] { "p:own-clean-up", "p:close", "host:release-view" }, log);
+        }
+
+        [Test]
         public void Attach_ChildrenOfAnAttachedPresenter_AreInjectedByItsFactory()
         {
             var other = new RecordingFactory();

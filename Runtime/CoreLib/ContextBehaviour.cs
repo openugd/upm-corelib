@@ -281,9 +281,9 @@ namespace OpenUGD.Core
                 {
                     Debug.LogWarning(
                         $"{GetType().Name} on '{name}' asks to persist across scenes, but it is not on a root " +
-                        $"object, and Unity keeps only root objects: it will be destroyed with its root " +
-                        $"'{transform.root.name}'. Move it to a root object, or override PersistAcrossScenes to " +
-                        "return false.", this);
+                        "object, and Unity keeps only root objects across scene loads: it lives and dies with " +
+                        $"its root '{transform.root.name}'. Move it to a root object, or override " +
+                        "PersistAcrossScenes to return false.", this);
                 }
             }
 
