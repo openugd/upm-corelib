@@ -14,10 +14,14 @@ namespace OpenUGD.Core
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>What it owns.</b> A <see cref="OpenUGD.Lifetime.Definition"/> nested under
-    /// <see cref="OpenUGD.Lifetime.Eternal"/>, six signals scoped to it, and the boot <see cref="Task"/>.
+    /// <b>What it owns.</b> A <see cref="OpenUGD.Lifetime.Definition"/> nested in
+    /// <see cref="PlaySession.Lifetime"/>, six signals scoped to it, and the boot <see cref="Task"/>.
     /// <c>OnDestroy</c> terminates the definition, which terminates the signals and — provided
-    /// <see cref="CreateContextAsync"/> built the context under <see cref="Lifetime"/> — the context too.
+    /// <see cref="CreateContextAsync"/> built the context under <see cref="Lifetime"/> — the context too. So does
+    /// the end of the play session, which comes first when the application quits or play mode is exited.
+    /// <i>Changed in 2.0.0</i> — the definition was nested in <see cref="OpenUGD.Lifetime.Eternal"/>, so with
+    /// domain reload disabled a behaviour Unity never destroyed kept its scope, and its context, into the next
+    /// play session (audit UH-11).
     /// </para>
     /// <para>
     /// <b>Breaking change in 2.0.0.</b> The boot is no longer a discarded <c>Task</c>. It is
@@ -65,6 +69,7 @@ namespace OpenUGD.Core
         private Signal _onQuit;
         private Signal<bool> _onFocus;
         private Signal<bool> _onPause;
+        private bool _quitFired;
 
         /// <summary>Fires once per frame, from <c>Update</c>.</summary>
         public ISignal OnUpdate => _onUpdate;
@@ -75,8 +80,11 @@ namespace OpenUGD.Core
         /// <summary>Fires from <c>FixedUpdate</c>, at the physics rate.</summary>
         public ISignal OnFixedUpdate => _onFixedUpdate;
 
-        /// <summary>Fires from <c>OnApplicationQuit</c>. Not raised on platforms that kill the
-        /// process.</summary>
+        /// <summary>
+        /// Fires once when the application quits: from <c>OnApplicationQuit</c>, or when the play session ends
+        /// (<see cref="PlaySession"/>), whichever Unity does first — in either case while the context is still
+        /// alive. Not raised on platforms that kill or suspend the process instead of quitting it.
+        /// </summary>
         public ISignal OnQuit => _onQuit;
 
         /// <summary>Fires from <c>OnApplicationFocus</c>; the argument is Unity's <c>focus</c>
@@ -276,10 +284,14 @@ namespace OpenUGD.Core
         protected virtual void OnApplicationPause(bool pause) => _onPause?.Fire(pause);
 
         /// <summary>
-        /// Unity's <c>OnApplicationQuit</c>: fires <see cref="OnQuit"/>. <b>Call
-        /// <c>base.OnApplicationQuit()</c></b> when overriding, or <see cref="OnQuit"/> stops firing.
+        /// Unity's <c>OnApplicationQuit</c>: fires <see cref="OnQuit"/>. <b>Call <c>base.OnApplicationQuit()</c></b>
+        /// when overriding, or <see cref="OnQuit"/> fires only when the play session ends.
         /// </summary>
-        protected virtual void OnApplicationQuit() => _onQuit?.Fire();
+        protected virtual void OnApplicationQuit()
+        {
+            _quitFired = true;
+            _onQuit?.Fire();
+        }
 
         /// <summary>
         /// Unity's <c>OnDestroy</c>: terminates <see cref="Lifetime"/>, and with it the signals, a boot still in
@@ -311,15 +323,29 @@ namespace OpenUGD.Core
         {
             Context = null;
 
-            _definition = Lifetime.Eternal.DefineNested(gameObject.name);
+            var session = PlaySession.Lifetime;
+            _definition = session.DefineNested(gameObject.name);
             var lifetime = _definition.Lifetime;
 
             _onUpdate = new Signal(lifetime);
             _onLateUpdate = new Signal(lifetime);
             _onFixedUpdate = new Signal(lifetime);
-            _onQuit = new Signal(lifetime);
+            var onQuit = _onQuit = new Signal(lifetime);
             _onFocus = new Signal<bool>(lifetime);
             _onPause = new Signal<bool>(lifetime);
+
+            // The play session ends at Application.quitting. Should Unity raise that before OnApplicationQuit,
+            // OnQuit still fires, once, from here. A sibling of this behaviour's scope defined after it, so the
+            // session ends it first - while the scope, its signals and the context are all still alive - and ended
+            // with the scope, so it does not outlive the behaviour. A scope ended for any other reason - OnDestroy,
+            // Rebuild - is not a quit.
+            var quitHook = session.DefineNested("OnQuit");
+            quitHook.Lifetime.AddAction(() => {
+                if (!session.IsTerminated || _quitFired) return;
+                _quitFired = true;
+                onQuit.Fire();
+            });
+            lifetime.AddAction(quitHook.Terminate);
 
             if (PersistAcrossScenes)
             {
@@ -371,6 +397,10 @@ namespace OpenUGD.Core
             var cancellationToken = lifetime.AsCancellationToken();
             try
             {
+                // A scope born terminated - created after the play session ended - boots nothing. That is
+                // teardown, not a failure: Startup ends cancelled.
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var context = await CreateContextAsync(cancellationToken);
 
                 if (context == null)

@@ -171,6 +171,85 @@ namespace OpenUGD.Tests
             Assert.Greater(fired, 0, "the override called base.Update(), so OnUpdate keeps firing");
         }
 
+        // ------------------------------------------------------------------ play session (UH-11)
+
+        [Test]
+        public void ViewAndContext_NestTheirScopesInThePlaySession()
+        {
+            var view = Create("view").AddComponent<ViewBehaviour>();
+            var context = Create("context").AddComponent<PendingContext>();
+
+            EndThePlaySession();
+
+            Assert.IsTrue(view.Lifetime.IsTerminated, "a view's scope ends with the play session");
+            Assert.IsTrue(context.Lifetime.IsTerminated, "so does a context's, and the context with it");
+        }
+
+        [Test]
+        public void SignalMonoBehaviour_ItsSignalsEndWithThePlaySession()
+        {
+            var component = Create("signals").AddComponent<SignalMonoBehaviour>();
+            var enabled = 0;
+            component.EnableSignal.Subscribe(Lifetime.Eternal, () => enabled++);
+
+            EndThePlaySession();
+            component.gameObject.SetActive(false);
+            component.gameObject.SetActive(true);
+
+            Assert.AreEqual(0, enabled, "the signals are scoped to the component's scope, which the session ended");
+        }
+
+        [Test]
+        public void ContextBehaviour_WhenThePlaySessionEnds_FiresOnQuitOnce()
+        {
+            var behaviour = Create("context").AddComponent<QuittingContext>();
+            var quits = 0;
+            var scopeAliveDuringQuit = false;
+            behaviour.OnQuit.Subscribe(Lifetime.Eternal, () => {
+                quits++;
+                scopeAliveDuringQuit = !behaviour.Lifetime.IsTerminated;
+            });
+
+            EndThePlaySession();
+            behaviour.SendOnApplicationQuit();
+
+            Assert.AreEqual(1, quits, "whichever of the two Unity does first fires OnQuit, and only once");
+            Assert.IsTrue(scopeAliveDuringQuit, "OnQuit runs before the scope, and the context under it, end");
+        }
+
+        [Test]
+        public void ContextBehaviour_OnApplicationQuitThenTheSessionEnd_FiresOnQuitOnce()
+        {
+            var behaviour = Create("context").AddComponent<QuittingContext>();
+            var quits = 0;
+            behaviour.OnQuit.Subscribe(Lifetime.Eternal, () => quits++);
+
+            behaviour.SendOnApplicationQuit();
+            EndThePlaySession();
+
+            Assert.AreEqual(1, quits);
+        }
+
+        [Test]
+        public void ContextBehaviour_DestroyedOrRebuilt_IsNotAQuit()
+        {
+            var behaviour = Create("context").AddComponent<QuittingContext>();
+            var quits = 0;
+            behaviour.OnQuit.Subscribe(Lifetime.Eternal, () => quits++);
+
+            behaviour.Rebuild();
+            Object.DestroyImmediate(behaviour.gameObject);
+
+            Assert.AreEqual(0, quits);
+        }
+
+        // Stands in for Application.quitting, then starts the next session so later tests have a live one.
+        private static void EndThePlaySession()
+        {
+            PlaySession.End();
+            PlaySession.Begin();
+        }
+
         // ------------------------------------------------------------------ boot failures (CC-28)
 
         [UnityTest]
@@ -339,6 +418,12 @@ namespace OpenUGD.Tests
             cancellationToken.Register(() => pending.TrySetCanceled(cancellationToken));
             return pending.Task;
         }
+    }
+
+    // Lets a test send OnApplicationQuit, which only Unity can call.
+    public sealed class QuittingContext : PendingContext
+    {
+        public void SendOnApplicationQuit() => OnApplicationQuit();
     }
 
     // Counts how many boots have started.

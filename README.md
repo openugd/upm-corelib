@@ -153,6 +153,30 @@ public class LevelContext : ContextBehaviour
 }
 ```
 
+**Play sessions.** `PlaySession.Lifetime` is the scope of one play session: nested in `Lifetime.Eternal`,
+ended when the application quits — in the editor, when play mode is exited — and created afresh when the
+next session starts. `Lifetime.Eternal` is a static field, so with domain reload disabled in *Enter Play Mode
+Options* it carries everything nested in it from one session into the next; the play session does not.
+`ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` nest their scopes in it, so even a component
+Unity never destroys is torn down with the session. Root anything else that lives as long as the
+application there too:
+
+```csharp
+using System.Threading.Tasks;
+using OpenUGD;
+using OpenUGD.Core;
+
+public static class Analytics
+{
+    // Not owned by a ContextBehaviour: ends with the play session, and the next session builds a new one.
+    public static Task<Context> BuildAsync() => Context.CreateBuilder(PlaySession.Lifetime).BuildAsync();
+}
+```
+
+The session ends at `Application.quitting`, before Unity destroys the scene, so the scopes nested in it end
+newest first while every object is still alive. `ContextBehaviour.OnQuit` fires once on the way out, before
+the context is disposed.
+
 `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` handle Unity's messages — `Awake`, `Update`,
 `OnDestroy` and the rest — as `protected virtual` methods. Override one and call `base`: the base method is
 what creates the scope, fires the signal or ends the scope. Declaring one without `override` hides it, and the
@@ -165,7 +189,7 @@ The package holds five runtime assemblies, one per concern, each named as if it 
 
 | Assembly | What it holds | References | UnityEngine |
 | --- | --- | --- | --- |
-| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, the coroutine and `SynchronizationContext` seams, and `ContextPresenterFactory`, which adapts presenters to the context. | lifetime, signal, context, presenters | yes; no uGUI |
+| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `PlaySession`, the coroutine and `SynchronizationContext` seams, and `ContextPresenterFactory`, which adapts presenters to the context. | lifetime, signal, context, presenters | yes; no uGUI |
 | `com.openugd.presenters` | The presenter tree and `IPresenterFactory`. | lifetime | no |
 | `com.openugd.commands` | The command map. | lifetime, context | no |
 | `com.openugd.logging` | Tagged logging and its sink interface. | nothing | no |
@@ -191,6 +215,7 @@ This is the whole public surface of the package.
 | Type | Assembly | Namespace | Purpose |
 | --- | --- | --- | --- |
 | `ContextBehaviour` | `com.openugd.corelib` | `OpenUGD.Core` | MonoBehaviour entry point: owns the `Lifetime`, builds the `Context`, exposes the Unity loop as signals, and surfaces the boot as an awaitable `Startup`. |
+| `PlaySession` | `com.openugd.corelib` | `OpenUGD.Core` | The scope of one play session: ends when the application quits or play mode is exited, and starts clean with domain reload disabled. |
 | `ContextBehaviourEditor` | `com.openugd.corelib.editor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
 | `ViewBehaviour` | `com.openugd.corelib` | `OpenUGD.Presenters` | A MonoBehaviour whose public `Lifetime` ends in `OnDestroy`; `presenter.CloseWith(view.Lifetime)` ties a presenter to it. |
 | `ICoroutineProvider`, `CoroutineProvider` | `com.openugd.corelib` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |

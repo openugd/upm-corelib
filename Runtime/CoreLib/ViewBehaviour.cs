@@ -1,4 +1,5 @@
 using System;
+using OpenUGD.Core;
 using UnityEngine;
 
 namespace OpenUGD.Presenters
@@ -30,12 +31,15 @@ namespace OpenUGD.Presenters
         private Lifetime.Definition _definition;
 
         /// <summary>
-        /// This view's scope: created in <c>Awake</c>, terminated in <c>OnDestroy</c>. Hand it to whatever must
-        /// end with the view — <c>presenter.CloseWith(view.Lifetime)</c>, for a presenter.
+        /// This view's scope: created in <c>Awake</c>, nested in <see cref="PlaySession.Lifetime"/>, and
+        /// terminated in <c>OnDestroy</c> or when the play session ends, whichever comes first. Hand it to whatever
+        /// must end with the view — <c>presenter.CloseWith(view.Lifetime)</c>, for a presenter.
         /// </summary>
         /// <remarks>
         /// <i>Changed in 2.0.0</i> — this was <c>protected</c>, so nothing outside the view could bind to its
-        /// destruction, although that was the documented purpose of the class (audit CC-5).
+        /// destruction, although that was the documented purpose of the class (audit CC-5). It was nested in
+        /// <see cref="OpenUGD.Lifetime.Eternal"/>, so a view Unity never destroyed kept it into the next play session
+        /// when domain reload was disabled (audit UH-11).
         /// </remarks>
         /// <exception cref="InvalidOperationException">
         /// <c>Awake</c> has not run: the GameObject has never been active, or a subclass's <c>Awake</c> did not
@@ -61,7 +65,7 @@ namespace OpenUGD.Presenters
         {
             if (_definition == null)
             {
-                _definition = Lifetime.Eternal.DefineNested(name);
+                _definition = PlaySession.Lifetime.DefineNested(name);
             }
         }
 

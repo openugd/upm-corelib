@@ -39,7 +39,8 @@ namespace OpenUGD.Core
     /// </para>
     /// <para>
     /// <b>Scope.</b> <c>Awake</c> creates a <see cref="Lifetime.Definition"/> nested in
-    /// <see cref="Lifetime.Eternal"/>, and <c>OnDestroy</c> terminates it. Every subscription taken through
+    /// <see cref="PlaySession.Lifetime"/>, and <c>OnDestroy</c> terminates it, as does the end of the play
+    /// session. Every subscription taken through
     /// <see cref="Subscribe"/> is therefore dropped when the <c>GameObject</c> is destroyed, even one whose
     /// own lifetime is still alive — the signal releases its handler references there, so a destroyed
     /// instance stops holding on to listeners that outlive it. The 0.6.x component created the definition in
@@ -106,7 +107,7 @@ namespace OpenUGD.Core
         /// <inheritdoc/>
         public bool IsSelected { get; private set; }
 
-        private void Awake() => _definition = Lifetime.Eternal.DefineNested(nameof(ContextInstanceComponent));
+        private void Awake() => _definition = PlaySession.Lifetime.DefineNested(nameof(ContextInstanceComponent));
 
         private void OnDestroy() => _definition?.Terminate();
 

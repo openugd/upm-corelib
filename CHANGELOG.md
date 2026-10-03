@@ -159,6 +159,13 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   awaitable and observable. A failure reaches `OnStartFailed` *and* faults `Startup` instead of
   vanishing into a discarded task, and an integration test can `await behaviour.Startup` and see the
   real exception. `Context` is `null` until the boot completes. Implements `ICoroutineProvider`.
+- `PlaySession` (`OpenUGD.Core`): `PlaySession.Lifetime` is the scope of one play session, nested in
+  `Lifetime.Eternal`. It is started at `RuntimeInitializeLoadType.SubsystemRegistration` — when a player
+  starts and each time the editor enters play mode, domain reload or not — and ended at
+  `Application.quitting`, which Unity raises when a player quits and when play mode is exited, before it
+  destroys the scene; entering edit mode ends it as a backstop. Between sessions it returns the ended
+  lifetime, so a scope created during shutdown is born terminated; in edit mode it is a session of its own
+  that ends when play mode starts. See *Fixed* for why.
 - `ContextBehaviourEditor` — shows `Startup.Status`, the failure message if it faulted, and whether
   `Context` is built. Before 2.0.0 a context that failed to start looked identical in the inspector to
   one that started fine.
@@ -208,11 +215,12 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
   sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
-  15 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, and
-  which code implements `ICoroutineProvider`), and 17 marked `RequiresUnity` cover `ViewBehaviour`'s scope
-  and `CloseWith`, a destroyed view skipping `Refresh`, `PersistAcrossScenes` on a root and on a child, a
-  boot cancelled by destruction, a failing `OnStarted` and a failing `Rebuild` teardown, overrides that call
-  `base`, and coroutines through `ICoroutineProvider`.
+  23 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which
+  code implements `ICoroutineProvider`, and `PlaySession`, including that nothing else in the assembly roots a
+  scope in `Lifetime.Eternal`), and 22 marked `RequiresUnity` cover `ViewBehaviour`'s scope and `CloseWith`, a
+  destroyed view skipping `Refresh`, `PersistAcrossScenes` on a root and on a child, a boot cancelled by
+  destruction, a failing `OnStarted` and a failing `Rebuild` teardown, overrides that call `base`, coroutines
+  through `ICoroutineProvider`, and component scopes and `OnQuit` at the end of the play session.
 
 ### Changed
 
@@ -221,7 +229,7 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 
   | Assembly | Contents | References | UnityEngine |
   | --- | --- | --- | --- |
-  | `com.openugd.corelib` | the Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `ICoroutineProvider`/`CoroutineProvider`, `ISynchronizationContext`/`SynchronizationContextWrapper`, and `ContextPresenterFactory`, which adapts presenters to the context | lifetime, signal, context, presenters | yes, no uGUI |
+  | `com.openugd.corelib` | the Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `PlaySession`, `ICoroutineProvider`/`CoroutineProvider`, `ISynchronizationContext`/`SynchronizationContextWrapper`, and `ContextPresenterFactory`, which adapts presenters to the context | lifetime, signal, context, presenters | yes, no uGUI |
   | `com.openugd.presenters` | `Presenter` and its interfaces, `IPresenterFactory`, `PresenterExtensions` | lifetime | no |
   | `com.openugd.commands` | the command map, mappers and `AddCommandMap` | lifetime, context | no |
   | `com.openugd.logging` | `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | nothing | no |
@@ -480,6 +488,17 @@ rename entry near the top of this section for the full table.
 - **A write allocates nothing of its own** (audit UH-17). A derived logger rebuilt its tag path, one string
   per tag segment, for every record that passed its own filter — before the root's filter could still drop it.
   The path is now built once, when the logger is derived, and the one level test includes the root's.
+- **Nothing in corelib roots a scope in `Lifetime.Eternal` any more** (audit UH-11, LS-19, CX-21).
+  `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` nested their scopes in `Lifetime.Eternal`, a
+  static field, so with domain reload disabled (*Enter Play Mode Options*) a component Unity never destroyed —
+  never activated, or with a subclass that skipped `base.OnDestroy()` — kept its scope, its subscriptions and,
+  for a context, its running services into the next play session and into edit mode. They nest in
+  `PlaySession.Lifetime` now, which ends with the session; the *Multi Instance* sample does the same. When the
+  application quits or play mode is exited, every such scope therefore ends at `Application.quitting`, newest
+  first and before Unity destroys the objects, rather than one by one in `OnDestroy`. `ContextBehaviour.OnQuit`
+  still fires once on the way out, from `OnApplicationQuit` or from the end of the session, whichever Unity
+  does first, while the context is alive. A `ContextBehaviour` that wakes after the session has ended boots
+  nothing: `Startup` ends cancelled.
 - **A presenter whose attach fails no longer stays in the tree** (audit CC-4). An exception from the
   factory's `Inject` or from `OnInitialize` left the child in its parent's `Children` with a live
   `Lifetime`, so the parent went on closing and counting a presenter that never initialized. `AddPresenter`,

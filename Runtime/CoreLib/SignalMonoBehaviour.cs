@@ -1,3 +1,4 @@
+using OpenUGD.Core;
 using UnityEngine;
 
 namespace OpenUGD.Utils.Components
@@ -95,7 +96,7 @@ namespace OpenUGD.Utils.Components
                 return;
             }
 
-            _definition = Lifetime.Eternal.DefineNested();
+            _definition = PlaySession.Lifetime.DefineNested(nameof(SignalMonoBehaviour));
             var lifetime = _definition.Lifetime;
 
             _onStart = new Signal(lifetime);
@@ -143,7 +144,7 @@ namespace OpenUGD.Utils.Components
         /// <summary>
         /// Unity's <c>OnDestroy</c>: raises <see cref="DestroySignal"/>, then terminates this component's scope,
         /// releasing every subscriber. <b>Call <c>base.OnDestroy()</c></b> when overriding, or neither happens
-        /// and the scope stays on <see cref="Lifetime.Eternal"/> for the rest of the process.
+        /// and the scope stays on <see cref="PlaySession.Lifetime"/> until the play session ends.
         /// </summary>
         protected virtual void OnDestroy()
         {
@@ -156,7 +157,7 @@ namespace OpenUGD.Utils.Components
 
             // Signal 2.0.0 runs every handler and then rethrows what failed (one failure as itself, several as
             // an AggregateException). Without the finally, one bad subscriber would skip Terminate() and strand
-            // this definition on Lifetime.Eternal forever.
+            // this definition on the play session until it ends.
             try
             {
                 _onDestroy.Fire();
