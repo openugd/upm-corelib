@@ -186,15 +186,18 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `PresenterExtensions.GetChildren(...)` — the two `Presenter.GetChildren` instance methods became
   extension methods. Call sites are unchanged as long as `OpenUGD.Presenters` is imported.
 - `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
+- `ILog.IsEnabled(LogFlags)`, to skip building a message that would be dropped, and `ILog.Tag`, the full
+  dotted path a logger's records carry.
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
   `com.openugd.presenters.tests` (71 tests over the presenter tree built with a hand-written
   `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, the guards, the deleted surface and the
-  presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the command
-  mapper and its stripping annotations) and `com.openugd.logging.tests` (14 tests over tag paths, the two filters, sink
-  fan-out and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity
-  boundary; its 7 tests over `ContextPresenterFactory` need no Unity runtime.
+  presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
+  command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
+  the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
+  sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary;
+  its 7 tests over `ContextPresenterFactory` need no Unity runtime.
 
 ### Changed
 
@@ -239,6 +242,39 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   | `LoggerGlobal` | `LogRoot` | the root channel that owns the sinks and hands out tagged children |
   | `UnityLoggerProvider` | `UnityLogSink` | matches `ILogSink` |
   | `UseUnityLogger(...)` | `UseUnityConsole(...)` | says where the records actually go |
+
+- **Breaking: the write methods are named, and the single-letter ones are gone** (audit CC-13, G-9). There
+  are no aliases: one way to write each level. Migration, call by call:
+
+  | 0.6.1 | 2.0.0 |
+  | --- | --- |
+  | `V(message)` | `Verbose(message)` |
+  | `I(message)` | `Info(message)` |
+  | `W(message)` | `Warn(message)` |
+  | `E(message)` | `Error(message)` |
+  | `D(message)` | `Debug(message)` |
+  | `F(message)` | `Fatal(message)` |
+
+- **Breaking: `ILog` no longer extends `IDisposable`** (audit CC-11). A derived logger held nothing to
+  release, and disposing one detached it from its parent, after which every write on it threw
+  `NullReferenceException` — which is what a container did to a logger it built from a factory
+  registration, at the end of its lifetime. `LogRoot` implements `IDisposable` itself and keeps `Dispose`,
+  which detaches its sinks. Migration: delete `Dispose()` calls on derived loggers; dispose the `LogRoot`
+  you created, or let the context that constructed it do so.
+- **Breaking: `LogRoot` no longer routes through a hidden inner logger** (audit CC-13). A logger derived from
+  the root has the root as its `Parent` (it had the inner logger); its `LogFlag` includes the root's
+  `Flag` (it ignored it, although the root still filtered the record); and the root's write methods return
+  the root (they returned the inner logger, whose `Flag` silenced the whole tree when a chained call set
+  it). Migration: none for ordinary code; code that walked `Parent` to find the root now finds it.
+- **Breaking: `LogRoot` is `sealed`, and its write methods are not `virtual`.** An override intercepted only
+  the writes made on the root itself, never those of the loggers derived from it. Migration: implement
+  `ILogSink` to see every record; pass the tag to the constructor to name a root.
+- **Breaking: arguments are validated where they used to fail later.** `WithTag(null)` throws
+  `ArgumentNullException` and `WithTag("")` throws `ArgumentException` (they produced a path with a bare dot,
+  or a `NullReferenceException` for a `null` type); `Subscribe(null)` throws `ArgumentNullException` (the
+  next write threw). Under a root whose tag is empty, a derived logger's path no longer starts with a dot
+  (`Inventory`, not `.Inventory`). `LogRoot.Log` drops a record whose flag names no level (it delivered
+  it). Migration: pass a real tag and a real sink.
 
 
 - **Breaking: `Widget` is renamed `Presenter`, and the namespace `OpenUGD.Core.Widgets` is renamed
@@ -320,11 +356,11 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   a generic method of your own, needs `[Inject]` on the command's constructor.
 - **Breaking: `CommandMap(Lifetime, IInjector)` → `CommandMap(Lifetime, Context)`;
   `CommandMapper(Lifetime, Type, IInjector)` → `CommandMapper(Lifetime, Type, Context)`.**
-- **Breaking: `Logger`'s six write methods take `object` instead of `dynamic`.** Source-compatible at
-  every call site — a `dynamic` parameter is already `object` plus `[Dynamic]` in IL — and at every
-  implementation, since `LoggerGlobal` and its nested `LoggerImpl` (now `LogRoot` and `TaggedLog`)
-  *already* declared `object`. What it
-  removes is the obligation: `dynamic` forced a `Microsoft.CSharp` reference on every implementing
+- **Breaking: `Logger`'s six write methods take `object` instead of `dynamic`** (and are renamed, see
+  above). On its own this change was source-compatible at every call site — a `dynamic` parameter is already
+  `object` plus `[Dynamic]` in IL — and at every implementation, since `LoggerGlobal` and its nested
+  `LoggerImpl` (now `LogRoot` and `TaggedLog`) *already* declared `object`. What it removes is the
+  obligation: `dynamic` forced a `Microsoft.CSharp` reference on every implementing
   assembly, and an implementer that actually used the parameter dynamically would have built a call
   site and thrown `ExecutionEngineException` under IL2CPP on device. Nothing here did — but the trap
   was loaded and pointed at the log, which is where a failure is least likely to be noticed.
@@ -404,10 +440,17 @@ rename entry near the top of this section for the full table.
 - **`LogRoot.Dispose()` no longer throws.** It used to throw `NotImplementedException` on purpose: the
   argument was that failing loudly beats implying a teardown that does not exist. That argument stopped
   holding once the container underneath changed. `Context` registers every constructed service that
-  implements `IDisposable` for disposal when its lifetime ends, and `ILog` extends `IDisposable` — so a
+  implements `IDisposable` for disposal when its lifetime ends, and a log root is disposable — so a
   root registered with `Add<LogRoot>()` threw *while the context was tearing down*, turning an ordinary
   shutdown into a failure, in the one place a failure is least likely to be noticed. `Dispose` now
   detaches every sink, which is a real teardown, and is safe to call twice.
+- **Logging is safe across threads** (audit CC-12). The sink list was a `List<T>` that writes iterated
+  while `Subscribe` and `Unsubscribe` changed it, so a write from a worker thread, or a sink unsubscribing
+  itself during a write, failed with "Collection was modified". The list is now copied on every change and
+  swapped in whole under a lock; a write reads it without one.
+- **A write allocates nothing of its own** (audit UH-17). A derived logger rebuilt its tag path, one string
+  per level, for every record that passed its own filter — before the root's filter could still drop it.
+  The path is now built once, when the logger is derived, and the one level test includes the root's.
 
 
 - `SliderIntWidget` ignored range changes after the first render: it updated `value` on a model change

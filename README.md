@@ -90,7 +90,7 @@ public class ProfileService : IProfileService, IAwakeService, IInitializeService
 
     public Task InitializeAsync(CancellationToken cancellationToken)
     {
-        _log.I($"profile ready: {Name}");
+        _log.Info($"profile ready: {Name}");
         return Task.CompletedTask;
     }
 }
@@ -217,7 +217,7 @@ public class ScorePresenter : Presenter<ScoreView, int>
 
     private void OnReset()
     {
-        _log?.I("score reset");
+        _log?.Info("score reset");
         SetModel(0);
     }
 }
@@ -274,6 +274,46 @@ public sealed class VContainerPresenterFactory : IPresenterFactory
     public void Inject(Presenter presenter) => _resolver.Inject(presenter);
 }
 ```
+
+## Logging
+
+`LogRoot` is the root of a tree of tagged loggers and fans every record out to its sinks. Derive a logger per
+class with `WithTag`; each write method names its level.
+
+```csharp
+using OpenUGD.Logging;
+
+public class Inventory
+{
+    private readonly ILog _log;
+
+    public Inventory(ILog log) => _log = log.WithTag(typeof(Inventory));
+
+    public void Add(string item, int count)
+    {
+        _log.Info($"added {count} x {item}");
+
+        // The argument of a write is evaluated even when the write is dropped; ask first if it is costly.
+        if (_log.IsEnabled(LogFlags.Debug))
+        {
+            _log.Debug(DescribeContents());
+        }
+    }
+
+    private string DescribeContents() => "...";
+}
+```
+
+- `Verbose`, `Info`, `Warn`, `Error`, `Debug` and `Fatal` write at their level and return the logger they were
+  called on, so calls chain. `Tag` is the full dotted path a record carries (`Bootstrap.Inventory` under
+  `new LogRoot("Bootstrap")`), built once when the logger is derived.
+- A record is delivered when its level is set in the logger's `Flag` and in every `Flag` above it, the root's
+  included. `LogFlag` is that effective set, and `IsEnabled(flag)` tests it.
+- `UseUnityConsole(lifetime)`, from `com.openugd.logging.unity`, attaches the console sink; `Subscribe`
+  attaches your own `ILogSink`. Writing from any thread is safe, and so is subscribing or unsubscribing while
+  records are being written, from inside a sink included.
+- Loggers are not disposable, so a container that disposes what it built leaves them alone.
+  `LogRoot.Dispose()` detaches every sink.
 
 ## Commands and managed code stripping
 

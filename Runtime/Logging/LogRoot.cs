@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 
 namespace OpenUGD.Logging
 {
@@ -10,332 +9,292 @@ namespace OpenUGD.Logging
     /// </summary>
     /// <remarks>
     /// <para>
-    /// <b>Nothing is written until a provider is attached.</b> A fresh instance has no subscribers, so
-    /// every write is a no-op that still evaluates its argument. Attach the Unity console with
+    /// <b>Nothing is written until a sink is attached.</b> A fresh instance has no subscribers, so every
+    /// write is a no-op that still evaluates its argument. Attach the Unity console with
     /// <c>UnityLogSinkExtensions.UseUnityConsole</c> from the <c>com.openugd.logging.unity</c> assembly, or
     /// your own sink with <see cref="Subscribe"/>.
     /// </para>
     /// <para>
-    /// <b>One gate for the whole tree.</b> A derived logger filters against its own chain of
-    /// <see cref="ILog.Flag"/> values first, but every record that survives still funnels through
-    /// <see cref="Log"/>, which re-tests it against this object's <see cref="Flag"/>. Narrowing
-    /// <see cref="Flag"/> silences the whole tree, whatever the individual loggers permit.
+    /// <b>One tree.</b> A logger derived here with <see cref="WithTag(string)"/> has this root as its
+    /// <see cref="ILog.Parent"/>, and its <see cref="ILog.LogFlag"/> includes this root's <see cref="Flag"/>:
+    /// narrowing <see cref="Flag"/> silences the whole tree, and every logger reports so.
     /// </para>
     /// <para>
-    /// <b>The write methods do not return <c>this</c>.</b> <see cref="V"/> and its five siblings delegate
-    /// to an internal root logger and return <i>that</i>: chaining reads the same and the tag is the same,
-    /// but the result is a different object with its own <see cref="ILog.Flag"/>. Keep the instance you
-    /// constructed rather than whatever a write handed back.
+    /// <b>Threads.</b> Writing from any thread is safe, and so is subscribing and unsubscribing while other
+    /// threads write — including from inside <see cref="ILogSink.Log"/>. The sink list is copied on every
+    /// change and swapped in whole, so a record in flight is delivered to the sinks that were subscribed when
+    /// it started, and a change takes effect from the next record. No lock is held while a sink runs.
     /// </para>
     /// <para>
-    /// <b>Not thread-safe, and not re-entrant.</b> <see cref="Subscribe"/>, <see cref="Unsubscribe"/> and
-    /// <see cref="Log"/> share one unguarded list: subscribe during start-up, from a single thread, and
-    /// never from inside <see cref="ILogSink.Log"/>. Delivery itself is synchronous, on the thread
-    /// that wrote the record.
+    /// <b>Failures.</b> Nothing here catches: a sink that throws aborts the delivery of that record, so the
+    /// sinks after it in subscription order do not see it, and the exception surfaces at the call site that
+    /// wrote the log line.
     /// </para>
     /// <para>
     /// <b><see cref="Dispose"/> detaches every sink.</b> The root keeps working afterwards, but nothing it
-    /// is given reaches anywhere until a sink is subscribed again; see the member.
+    /// is given reaches anywhere until a sink is subscribed again.
     /// </para>
     /// </remarks>
-    public class LogRoot : ILog
+    public sealed class LogRoot : ILog, IDisposable
     {
-        private readonly TaggedLog _impl;
-        private readonly List<ILogSink> _sinks = new();
+        private readonly object _gate = new object();
+
+        // Copy-on-write: replaced whole, under _gate, by Subscribe/Unsubscribe/Dispose; read without a lock.
+        private volatile ILogSink[] _sinks = Array.Empty<ILogSink>();
 
         /// <summary>
-        /// Creates a root logger with no providers attached and every level enabled.
+        /// Creates a root logger with no sinks attached and every level enabled.
         /// </summary>
         /// <param name="tag">
         /// The first segment of every tag path this tree produces — an application or subsystem name.
-        /// <c>null</c> means the empty string, which is the default and which leaves derived loggers with
-        /// a leading dot in their path (<c>".Inventory"</c>) and records written on this logger itself
-        /// tagged with the empty string. Pass a real name if anything reads the tag.
+        /// <c>null</c> means the empty string: records written on the root itself are then tagged with the
+        /// empty string, and a derived logger's path starts with its own segment (<c>"Inventory"</c>, not
+        /// <c>".Inventory"</c>).
         /// </param>
-        public LogRoot(string tag = null) => _impl = new TaggedLog(tag ?? "", null, this);
+        public LogRoot(string tag = null) => Tag = tag ?? "";
 
         /// <summary>
-        /// Always <c>null</c>: a global logger is the root of its tree, never derived from another logger.
+        /// Always <c>null</c>: a root is never derived from another logger.
         /// </summary>
-        public ILog Parent { get; } = null;
+        public ILog Parent => null;
 
         /// <summary>
-        /// The single gate every record passes, whichever logger in the tree produced it:
-        /// <see cref="Log"/> drops anything whose level is not set here. Defaults to
-        /// <see cref="LogFlags.All"/>.
+        /// The tag this root was created with, and the first segment of every path in its tree.
         /// </summary>
-        /// <remarks>
-        /// Independent of the flags on loggers returned by <see cref="WithTag(string)"/> — those narrow
-        /// their own subtree only, and cannot widen past this one.
-        /// </remarks>
+        public string Tag { get; }
+
+        /// <summary>
+        /// The levels the whole tree permits. Defaults to <see cref="LogFlags.All"/>. A derived logger can
+        /// narrow this for its own subtree, never widen it.
+        /// </summary>
         public LogFlags Flag { get; set; } = LogFlags.All;
 
         /// <summary>
-        /// Identical to <see cref="Flag"/>: a root logger has no ancestors to intersect with, so nothing
-        /// narrows the set of levels it permits.
+        /// Identical to <see cref="Flag"/>: a root has no ancestors to intersect with.
         /// </summary>
         public LogFlags LogFlag => Flag;
+
+        /// <inheritdoc />
+        public bool IsEnabled(LogFlags flag) => Permits(Flag, flag);
 
         /// <summary>
         /// Derives a child logger tagged with the simple name of <paramref name="type"/> —
         /// <c>Type.Name</c>, so no namespace, and a generic type keeps its arity suffix.
         /// </summary>
         /// <param name="type">The type to name the child after; only its name is read.</param>
-        /// <returns>A new logger, exactly as <see cref="WithTag(string)"/> — see there for what it costs
-        /// and for why it must not be disposed.</returns>
-        /// <exception cref="NullReferenceException"><paramref name="type"/> is <c>null</c>: the name is
-        /// read without a check.</exception>
-        public ILog WithTag(Type type) => _impl.WithTag(type);
+        /// <returns>A new logger, exactly as <see cref="WithTag(string)"/>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="type"/> is <c>null</c>.</exception>
+        public ILog WithTag(Type type) => new TaggedLog(this, null, NameOf(type));
 
         /// <summary>
-        /// Derives a child logger whose tag path is this logger's tag, a dot, then <paramref name="tag"/>.
+        /// Derives a child logger whose tag path is this root's tag, a dot, then <paramref name="tag"/> —
+        /// or just <paramref name="tag"/> under a root whose tag is empty.
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The child starts at <see cref="LogFlags.All"/>. A write survives if its level is set on the
-        /// child and on every logger the child was derived from, and is then re-tested against
-        /// <see cref="Flag"/> at the funnel. Its records reach the providers subscribed here, including
-        /// ones subscribed after it was derived: on every write the child walks up to this logger and
-        /// reads the provider list as it stands then.
+        /// The child starts at <see cref="LogFlags.All"/> and has this root as its <see cref="ILog.Parent"/>.
+        /// A write on it is delivered if its level is set on the child and on every logger above it, this root
+        /// included, and it reaches the sinks subscribed here at the time of the write, including ones
+        /// subscribed after the child was derived.
         /// </para>
         /// <para>
-        /// <b>Costs an allocation per record.</b> The effective level is recomputed by walking the chain
-        /// to the root on every write, and the tag path is rebuilt — one string per level — for every
-        /// record that survives the child's own filter, so a deeply derived logger is not free. Derive
-        /// once and hold the result, as a field, rather than per call site.
-        /// </para>
-        /// <para>
-        /// <b>Do not dispose the result.</b> A derived logger holds no resources; disposing it only
-        /// detaches it from its parent, which truncates its tag path and severs its route to this logger,
-        /// so the next write on it throws <see cref="NullReferenceException"/>. Drop the reference
-        /// instead.
+        /// <b>Cost.</b> Deriving allocates the logger and its tag path, once. A write allocates nothing of its
+        /// own: the level test walks up to the root comparing flags, and a dropped write stops there. Derive
+        /// once and keep the result, in a field, rather than per call.
         /// </para>
         /// </remarks>
-        /// <param name="tag">The segment to append. Not validated — <c>null</c> or <c>""</c> yields a path
-        /// ending in a bare dot rather than an error.</param>
-        /// <returns>A new logger. Every call allocates one, and the tree keeps no registry of them.
-        /// </returns>
-        public ILog WithTag(string tag) => _impl.WithTag(tag);
+        /// <param name="tag">The segment to append. Must not be empty.</param>
+        /// <returns>A new logger. Every call allocates one, and the tree keeps no registry of them.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="tag"/> is <c>null</c>.</exception>
+        /// <exception cref="ArgumentException"><paramref name="tag"/> is empty.</exception>
+        public ILog WithTag(string tag) => new TaggedLog(this, null, SegmentOf(tag));
+
+        /// <summary>Writes at <see cref="LogFlags.Verbose"/>, tagged with <see cref="Tag"/>.</summary>
+        /// <param name="message">The message; may be <c>null</c>. Each sink decides how it is rendered.</param>
+        /// <returns>This root, so calls chain.</returns>
+        public ILog Verbose(object message) => Log(LogFlags.Verbose, Tag, message);
+
+        /// <summary>Writes at <see cref="LogFlags.Info"/>, tagged with <see cref="Tag"/>.</summary>
+        /// <param name="message">The message; may be <c>null</c>.</param>
+        /// <returns>This root, so calls chain.</returns>
+        public ILog Info(object message) => Log(LogFlags.Info, Tag, message);
+
+        /// <summary>Writes at <see cref="LogFlags.Warning"/>, tagged with <see cref="Tag"/>.</summary>
+        /// <param name="message">The message; may be <c>null</c>.</param>
+        /// <returns>This root, so calls chain.</returns>
+        public ILog Warn(object message) => Log(LogFlags.Warning, Tag, message);
+
+        /// <summary>Writes at <see cref="LogFlags.Error"/>, tagged with <see cref="Tag"/>.</summary>
+        /// <param name="message">The message; may be <c>null</c>.</param>
+        /// <returns>This root, so calls chain.</returns>
+        public ILog Error(object message) => Log(LogFlags.Error, Tag, message);
+
+        /// <summary>Writes at <see cref="LogFlags.Debug"/>, tagged with <see cref="Tag"/>.</summary>
+        /// <param name="message">The message; may be <c>null</c>.</param>
+        /// <returns>This root, so calls chain.</returns>
+        public ILog Debug(object message) => Log(LogFlags.Debug, Tag, message);
+
+        /// <summary>Writes at <see cref="LogFlags.Fatal"/>, tagged with <see cref="Tag"/>. Writing it neither
+        /// stops the process nor changes anything else; the level is a label the sinks act on.</summary>
+        /// <param name="message">The message; may be <c>null</c>.</param>
+        /// <returns>This root, so calls chain.</returns>
+        public ILog Fatal(object message) => Log(LogFlags.Fatal, Tag, message);
 
         /// <summary>
-        /// Detaches every sink, so nothing written afterwards reaches anywhere. Safe to call more than
-        /// once, and safe on a root that never had a sink.
+        /// Attaches a sink. From the next record on, every record the tree delivers is handed to
+        /// <paramref name="sink"/>, after the sinks subscribed before it.
         /// </summary>
         /// <remarks>
-        /// <b>Changed in 2.0.0.</b> This used to throw <c>NotImplementedException</c>, deliberately: the
-        /// argument was that failing loudly beats implying a teardown that does not exist. That argument
-        /// stopped holding when the container underneath changed. <c>OpenUGD.Context</c> registers
-        /// every constructed service that implements <see cref="IDisposable"/> for disposal when its
-        /// lifetime ends, and <see cref="ILog"/> extends <see cref="IDisposable"/> — so a root registered
-        /// with <c>Add&lt;LogRoot&gt;()</c> threw while the context was tearing down, turning an ordinary
-        /// shutdown into a failure. Detaching the sinks is a real teardown, so the honest thing to do is
-        /// perform it.
-        /// </remarks>
-        public void Dispose() => _sinks.Clear();
-
-        /// <summary>
-        /// Writes at <see cref="LogFlags.Verbose"/>, under this logger's root tag.
-        /// </summary>
-        /// <param name="message">The message; may be <c>null</c>. Each provider decides how it is
-        /// rendered.</param>
-        /// <returns>A logger over the same tag and the same providers, for chaining — <b>not</b> this
-        /// instance; see the type remarks.</returns>
-        public virtual ILog V(object message) => _impl.V(message);
-
-        /// <summary>
-        /// Writes at <see cref="LogFlags.Info"/>, under this logger's root tag.
-        /// </summary>
-        /// <param name="message">The message; may be <c>null</c>.</param>
-        /// <returns>A logger for chaining — not this instance; see the type remarks.</returns>
-        public virtual ILog I(object message) => _impl.I(message);
-
-        /// <summary>
-        /// Writes at <see cref="LogFlags.Warning"/>, under this logger's root tag.
-        /// </summary>
-        /// <param name="message">The message; may be <c>null</c>.</param>
-        /// <returns>A logger for chaining — not this instance; see the type remarks.</returns>
-        public virtual ILog W(object message) => _impl.W(message);
-
-        /// <summary>
-        /// Writes at <see cref="LogFlags.Error"/>, under this logger's root tag.
-        /// </summary>
-        /// <param name="message">The message; may be <c>null</c>.</param>
-        /// <returns>A logger for chaining — not this instance; see the type remarks.</returns>
-        public virtual ILog E(object message) => _impl.E(message);
-
-        /// <summary>
-        /// Writes at <see cref="LogFlags.Debug"/>, under this logger's root tag.
-        /// </summary>
-        /// <param name="message">The message; may be <c>null</c>.</param>
-        /// <returns>A logger for chaining — not this instance; see the type remarks.</returns>
-        public virtual ILog D(object message) => _impl.D(message);
-
-        /// <summary>
-        /// Writes at <see cref="LogFlags.Fatal"/>, under this logger's root tag. Writing it neither
-        /// stops the process nor changes anything else; the level is a label the providers act on.
-        /// </summary>
-        /// <param name="message">The message; may be <c>null</c>.</param>
-        /// <returns>A logger for chaining — not this instance; see the type remarks.</returns>
-        public virtual ILog F(object message) => _impl.F(message);
-
-        /// <summary>
-        /// Attaches a sink. From here on, every record that passes <see cref="Flag"/> is handed to
-        /// <paramref name="sink"/>, in subscription order relative to the other sinks.
-        /// </summary>
-        /// <remarks>
-        /// <para>
-        /// Neither deduplicated nor null-checked: subscribing the same provider twice makes it receive
-        /// every record twice, and a <c>null</c> provider is accepted here and throws
-        /// <see cref="NullReferenceException"/> at the next write.
-        /// </para>
-        /// <para>
-        /// <b>Not re-entrant.</b> <see cref="Log"/> iterates the sink list directly, so subscribing
-        /// from inside <see cref="ILogSink.Log"/> throws <see cref="InvalidOperationException"/>
-        /// out of the enclosing loop. Nor is it thread-safe against a concurrent write.
-        /// </para>
+        /// Not deduplicated: subscribing the same sink twice makes it receive every record twice. Safe to call
+        /// from any thread, and from inside <see cref="ILogSink.Log"/>; see the type remarks.
         /// </remarks>
         /// <param name="sink">The sink to attach. Records already written are not replayed to it.</param>
-        public void Subscribe(ILogSink sink) => _sinks.Add(sink);
+        /// <exception cref="ArgumentNullException"><paramref name="sink"/> is <c>null</c>.</exception>
+        public void Subscribe(ILogSink sink)
+        {
+            if (sink == null) throw new ArgumentNullException(nameof(sink), $"{nameof(sink)} can't be null");
+
+            lock (_gate)
+            {
+                var current = _sinks;
+                var next = new ILogSink[current.Length + 1];
+                Array.Copy(current, next, current.Length);
+                next[current.Length] = sink;
+                _sinks = next;
+            }
+        }
 
         /// <summary>
-        /// Detaches a sink attached earlier with <see cref="Subscribe"/>, and does nothing if it was never
+        /// Detaches a sink attached earlier with <see cref="Subscribe"/>, and does nothing if it is not
         /// attached.
         /// </summary>
         /// <remarks>
-        /// Removes a single occurrence: a sink subscribed twice keeps receiving records until it is
-        /// unsubscribed twice. Carries the same re-entrancy and threading caveats as
-        /// <see cref="Subscribe"/> — calling it from inside <see cref="ILogSink.Log"/> breaks the
-        /// loop that is delivering the record.
+        /// Removes a single occurrence, the earliest: a sink subscribed twice keeps receiving records until it
+        /// is unsubscribed twice. A record already being delivered still reaches it. Safe to call from any
+        /// thread, and from inside <see cref="ILogSink.Log"/>, including the sink's own.
         /// </remarks>
         /// <param name="sink">The sink to detach, matched with the default equality comparer — reference
         /// equality, unless the sink overrides <c>Equals</c>.</param>
-        public void Unsubscribe(ILogSink sink) => _sinks.Remove(sink);
+        public void Unsubscribe(ILogSink sink)
+        {
+            lock (_gate)
+            {
+                var current = _sinks;
+                var index = Array.IndexOf(current, sink);
+                if (index < 0) return;
+
+                var next = new ILogSink[current.Length - 1];
+                Array.Copy(current, 0, next, 0, index);
+                Array.Copy(current, index + 1, next, index, current.Length - index - 1);
+                _sinks = next;
+            }
+        }
 
         /// <summary>
-        /// The funnel every record passes through: if <paramref name="flag"/> is permitted by
-        /// <see cref="Flag"/>, hands the record to each subscribed provider in subscription order;
-        /// otherwise does nothing.
+        /// The funnel: if every level in <paramref name="flag"/> is permitted by <see cref="Flag"/>, hands the
+        /// record to each subscribed sink in subscription order; otherwise does nothing.
         /// </summary>
         /// <remarks>
-        /// <para>
-        /// The loggers derived with <see cref="WithTag(string)"/> reach the providers through here: they
-        /// resolve their tag path and apply their own filter first, then delegate to this method.
-        /// Calling it directly is legitimate for bridging a foreign logging front end, and bypasses
-        /// per-logger filtering: only <see cref="Flag"/> applies, and <paramref name="tag"/> is whatever
-        /// you say it is.
-        /// </para>
-        /// <para>
-        /// The test is <c>(Flag &amp; flag) == flag</c>, so a <paramref name="flag"/> naming several levels
-        /// passes only when all of them are enabled, and one naming none passes always and reaches the
-        /// providers with no level set.
-        /// </para>
-        /// <para>
-        /// Nothing here catches: a provider that throws aborts delivery, so the providers after it in
-        /// subscription order do not see the record, and the exception surfaces at the call site that
-        /// wrote the log line.
-        /// </para>
+        /// For bridging a foreign logging front end. It bypasses the per-logger filters: only
+        /// <see cref="Flag"/> applies, and <paramref name="tag"/> is whatever you pass, <c>null</c> included.
+        /// The loggers of the tree do not go through here; they test their own <see cref="ILog.LogFlag"/>, which
+        /// already includes <see cref="Flag"/>, and deliver directly.
         /// </remarks>
-        /// <param name="flag">The severity of the record; normally exactly one level.</param>
-        /// <param name="tag">The tag path to attribute the record to. Passed to the providers unchanged,
-        /// <c>null</c> included.</param>
-        /// <param name="message">The record itself, not formatted here — each provider decides. May be
+        /// <param name="flag">The severity of the record; normally exactly one level. No level at all is never
+        /// delivered.</param>
+        /// <param name="tag">The tag path to attribute the record to.</param>
+        /// <param name="message">The record itself, not formatted here — each sink decides. May be
         /// <c>null</c>.</param>
-        /// <returns>This logger, so calls chain.</returns>
+        /// <returns>This root, so calls chain.</returns>
         public ILog Log(LogFlags flag, string tag, object message)
         {
-            if ((Flag & flag) == flag)
-            {
-                foreach (var logger in _sinks)
-                {
-                    logger.Log(flag, tag, message);
-                }
-            }
-
+            if (Permits(Flag, flag)) Deliver(flag, tag, message);
             return this;
         }
 
-        private class TaggedLog : ILog
+        /// <summary>
+        /// Detaches every sink, so nothing written afterwards reaches anywhere. Safe to call more than
+        /// once, and on a root that never had a sink.
+        /// </summary>
+        /// <remarks>
+        /// <b>Changed in 2.0.0.</b> This used to throw <c>NotImplementedException</c>, which turned a
+        /// context's ordinary teardown into a failure: <c>OpenUGD.Context</c> disposes every service it
+        /// constructed that implements <see cref="IDisposable"/>. Detaching the sinks is a real teardown, so
+        /// that is what disposing does.
+        /// </remarks>
+        public void Dispose()
         {
-            private readonly LogRoot _logRoot;
-            private TaggedLog _parent;
-
-            public TaggedLog(string tag, TaggedLog parent = null, LogRoot logRoot = null)
+            lock (_gate)
             {
-                Tag = tag;
-                _parent = parent;
-                _logRoot = logRoot;
+                _sinks = Array.Empty<ILogSink>();
             }
+        }
+
+        private void Deliver(LogFlags flag, string tag, object message)
+        {
+            var sinks = _sinks;
+            for (var i = 0; i < sinks.Length; i++)
+            {
+                sinks[i].Log(flag, tag, message);
+            }
+        }
+
+        private static bool Permits(LogFlags enabled, LogFlags flag) => flag != 0 && (enabled & flag) == flag;
+
+        private static string NameOf(Type type) =>
+            type != null ? type.Name : throw new ArgumentNullException(nameof(type), $"{nameof(type)} can't be null");
+
+        private static string SegmentOf(string tag)
+        {
+            if (tag == null) throw new ArgumentNullException(nameof(tag), $"{nameof(tag)} can't be null");
+            if (tag.Length == 0)
+                throw new ArgumentException("a tag segment can't be empty: it would leave a bare dot in the path",
+                    nameof(tag));
+            return tag;
+        }
+
+        private sealed class TaggedLog : ILog
+        {
+            private readonly LogRoot _root;
+            private readonly TaggedLog _parent;
+
+            public TaggedLog(LogRoot root, TaggedLog parent, string segment)
+            {
+                _root = root;
+                _parent = parent;
+                var above = parent != null ? parent.Tag : root.Tag;
+                Tag = above.Length == 0 ? segment : above + "." + segment;
+            }
+
+            public ILog Parent => _parent != null ? (ILog)_parent : _root;
 
             public string Tag { get; }
 
-            private LogFlags InternalFlag {
-                get {
-                    if (_parent != null)
-                    {
-                        return _parent!.InternalFlag & Flag;
-                    }
-
-                    return Flag;
-                }
-            }
-
-            private string InternalTag {
-                get {
-                    if (_parent != null)
-                    {
-                        return $"{_parent.InternalTag}.{Tag}";
-                    }
-
-                    return Tag;
-                }
-            }
-
-            private LogRoot Global {
-                get {
-                    var current = this;
-                    while (current != null)
-                    {
-                        if (current._logRoot != null)
-                        {
-                            return current._logRoot;
-                        }
-
-                        current = current._parent;
-                    }
-
-                    return null;
-                }
-            }
-
             public LogFlags Flag { get; set; } = LogFlags.All;
-            public LogFlags LogFlag => InternalFlag;
-            public ILog Parent => _parent;
 
-            public ILog WithTag(Type type) => WithTag(type.Name);
+            public LogFlags LogFlag => Flag & (_parent != null ? _parent.LogFlag : _root.Flag);
 
-            public ILog WithTag(string tag) => new TaggedLog(tag, this);
+            public bool IsEnabled(LogFlags flag) => Permits(LogFlag, flag);
 
-            public void Dispose() => _parent = null;
+            public ILog WithTag(Type type) => new TaggedLog(_root, this, NameOf(type));
 
-            public virtual ILog V(object message) => Log(LogFlags.Verbose, message);
+            public ILog WithTag(string tag) => new TaggedLog(_root, this, SegmentOf(tag));
 
-            public virtual ILog I(object message) => Log(LogFlags.Info, message);
+            public ILog Verbose(object message) => Write(LogFlags.Verbose, message);
 
-            public virtual ILog W(object message) => Log(LogFlags.Warning, message);
+            public ILog Info(object message) => Write(LogFlags.Info, message);
 
-            public virtual ILog E(object message) => Log(LogFlags.Error, message);
+            public ILog Warn(object message) => Write(LogFlags.Warning, message);
 
-            public virtual ILog D(object message) => Log(LogFlags.Debug, message);
+            public ILog Error(object message) => Write(LogFlags.Error, message);
 
-            public virtual ILog F(object message) => Log(LogFlags.Fatal, message);
+            public ILog Debug(object message) => Write(LogFlags.Debug, message);
 
-            private ILog Log(LogFlags flag, object message)
+            public ILog Fatal(object message) => Write(LogFlags.Fatal, message);
+
+            private ILog Write(LogFlags flag, object message)
             {
-                if ((InternalFlag & flag) == flag)
-                {
-                    Global.Log(flag, InternalTag, message);
-                }
-
+                if (IsEnabled(flag)) _root.Deliver(flag, Tag, message);
                 return this;
             }
         }
