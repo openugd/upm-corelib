@@ -152,8 +152,8 @@ and child contexts. The *Bootstrap* sample is a larger version of this.
 
 ### The boot: `ContextBehaviour`
 
-`ContextBehaviour` owns a `Lifetime`, created in `Awake` and ended in `OnDestroy`, and calls `CreateContextAsync`
-from `Awake`. The boot is `Startup`, a `Task`:
+`ContextBehaviour` owns a `Lifetime`, created in `Awake` and ended in `OnDestroy` or with the play session, and
+calls `CreateContextAsync` from `Awake`. The boot is `Startup`, a `Task`:
 
 - `OnStarted(context)` runs when it succeeds; `Context` is set from then on, and `null` before.
 - A failure reaches `OnStartFailed(exception)` — which logs it unless you override it — *and* faults `Startup`,
@@ -163,8 +163,8 @@ from `Awake`. The boot is `Startup`, a `Task`:
 - `Rebuild()`, also in the component's context menu, ends the scope and boots again, in play mode only.
 
 The behaviour republishes Unity's callbacks as signals — `OnUpdate`, `OnLateUpdate`, `OnFixedUpdate`, `OnFocus`,
-`OnPause` and `OnQuit` — which exist from `Awake` and fire before the boot has finished. It implements
-`ICoroutineProvider`, so a service can be handed it as its coroutine runner:
+`OnPause` and `OnQuit` — which exist from `Awake` and start firing whether or not the boot has finished. It
+implements `ICoroutineProvider`, so a service can be handed it as its coroutine runner:
 `builder.Services.AddInstance<ICoroutineProvider>(this)`.
 
 By default the GameObject is kept across scene loads. A context that belongs to its scene says so, and a subclass
@@ -826,8 +826,8 @@ log.Info("added");
 
 Also: a logger derived from the root has the root as its `Parent` and honours the root's `Flag`; `WithTag(null)`
 and `WithTag("")` throw; a derived logger builds its tag path once instead of on every write;
-`LogRoot.Dispose()` detaches the sinks instead of throwing `NotImplementedException`. To intercept every record, implement `ILogSink` rather than
-overriding `LogRoot`.
+`LogRoot.Dispose()` detaches the sinks instead of throwing `NotImplementedException`. To intercept every record,
+implement `ILogSink` rather than overriding `LogRoot`.
 
 ### Commands
 
