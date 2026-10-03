@@ -40,6 +40,21 @@
   },
   "samples": [
     {
+      "displayName": "Bootstrap",
+      "description": "A ContextBehaviour that boots two services - constructor injection, IAwakeService then IInitializeService, a signal property, a coroutine through ICoroutineProvider - and logs to the Unity console through a LogRoot rooted at PlaySession.Lifetime, so everything ends with the play session.",
+      "path": "Samples~/Bootstrap"
+    },
+    {
+      "displayName": "Presenters",
+      "description": "A presenter tree on a host's scope: Presenter.Attach with ContextPresenterFactory, [Inject] members on presenters created with new, a view swap that shows ViewLifetime unwiring the old view, a presenter that closes with its view (CloseWith), and the teardown order, logged step by step.",
+      "path": "Samples~/Presenters"
+    },
+    {
+      "displayName": "Commands",
+      "description": "A shop wired with the command map: commands mapped by type (checked at registration), by factory and as a one-time registration, a registration undone, a refusal rethrown to the caller of Tell, a per-execution Lifetime, and a listener that hears every message.",
+      "path": "Samples~/Commands"
+    },
+    {
       "displayName": "Multi Instance",
       "description": "Several game instances in one process, one per display, with input and audio focus switched between them: the 0.6.x ContextInstanceComponent, ContextFactoryInstancesComponent and IContextInstanceProvider, moved out of the package in 2.0.0 and fixed. The scripts keep their 0.6.x GUIDs, so existing prefabs and scenes bind to them after the import.",
       "path": "Samples~/MultiInstance"

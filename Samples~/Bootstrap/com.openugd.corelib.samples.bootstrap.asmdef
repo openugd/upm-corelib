@@ -1,0 +1,21 @@
+{
+    "name": "com.openugd.corelib.samples.bootstrap",
+    "rootNamespace": "OpenUGD.Samples.Bootstrap",
+    "references": [
+        "com.openugd.corelib",
+        "com.openugd.context",
+        "com.openugd.lifetime",
+        "com.openugd.signal",
+        "com.openugd.logging",
+        "com.openugd.logging.unity"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
