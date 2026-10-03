@@ -277,8 +277,8 @@ presenter's scope alive, and the view not destroyed — so its body needs no `Vi
 
 **Hosts.** Code that owns the scope a presenter lives in — a window service, say — roots each presenter on a
 scope of its own with `Presenter.Attach(presenter, definition, factory)`, then calls `SetModel` and
-`SetView`. `IPresenterFactory.Create(type)` builds a presenter it knows only by type. Both are public, so a
-host in another assembly needs no `InternalsVisibleTo`.
+`SetView`. `IPresenterFactory.Create(type)` builds a presenter it knows only by type; its members are
+injected when it is attached. Both are public, so a host in another assembly needs no `InternalsVisibleTo`.
 
 **Another container.** `IPresenterFactory` has two members, so an adapter is short. A sketch for
 VContainer, not compiled or tested here; note that VContainer injects members marked with its own
@@ -296,12 +296,8 @@ public sealed class VContainerPresenterFactory : IPresenterFactory
 
     public VContainerPresenterFactory(IObjectResolver resolver) => _resolver = resolver;
 
-    public Presenter Create(Type presenterType)
-    {
-        var presenter = (Presenter)Activator.CreateInstance(presenterType);
-        _resolver.Inject(presenter);
-        return presenter;
-    }
+    // Construction only: attaching the presenter calls Inject below, so its members are filled in then.
+    public Presenter Create(Type presenterType) => (Presenter)Activator.CreateInstance(presenterType);
 
     public void Inject(Presenter presenter) => _resolver.Inject(presenter);
 }

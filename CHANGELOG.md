@@ -174,7 +174,8 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   injected, in two members — `Presenter Create(Type presenterType)` for code that knows a presenter only by
   its type, and `void Inject(Presenter presenter)`, which the tree calls once for every presenter it
   attaches, before `OnInitialize`, so a presenter created with `new` still gets its injected members.
-  `Create`'s parameter carries `[DynamicallyAccessedMembers]` for constructors, so a presenter type written at
+  A presenter from `Create` is injected when it is attached, like any other, so `Create` need only
+  construct it. `Create`'s parameter carries `[DynamicallyAccessedMembers]` for constructors, so a presenter type written at
   the call site survives IL2CPP stripping. Checked with Unity's linker on 6000.0.41f1 and 6000.3.3f1 at Medium
   and High: through `ContextPresenterFactory`, the constructor is kept and an `[Inject]` member is filled, with
   no linker warning; without the annotation, the constructor is stripped and the linker warns IL2067.
@@ -201,7 +202,7 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
-  `com.openugd.presenters.tests` (77 tests over the presenter tree built with a hand-written
+  `com.openugd.presenters.tests` (78 tests over the presenter tree built with a hand-written
   `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, `CloseWith`, the guards, the deleted surface
   and the presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
@@ -214,19 +215,6 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 
 ### Changed
 
-- **Breaking: the Unity messages of `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` are
-  `protected virtual`** (audit CC-6, UH-9): `Awake`, `Update`, `FixedUpdate`, `LateUpdate`,
-  `OnApplicationFocus`, `OnApplicationPause`, `OnApplicationQuit` and `OnDestroy` on `ContextBehaviour`;
-  `Awake` and `OnDestroy` on `ViewBehaviour`; `Awake`, `Start`, `OnEnable`, `OnDisable` and `OnDestroy` on
-  `SignalMonoBehaviour`. They were private, so a subclass that declared, say, its own `Update` silently
-  replaced the base's — `OnUpdate` stopped firing, or the scope was never ended — because Unity finds the
-  method by name. Such a subclass now gets warning CS0114. Migration: declare the method
-  `protected override` and call `base` (`base.Awake()` first).
-- **Breaking: `ViewBehaviour.OnAwake` is removed.** It existed only because `Awake` was private. Migration:
-  override `Awake` and call `base.Awake()` first.
-- `ViewBehaviour.Lifetime` is public. It was `protected`, so nothing outside the view could bind to the
-  view's destruction, although the type's documentation said that was its purpose (audit CC-5). Reading it
-  before `Awake` throws `InvalidOperationException` (it threw `NullReferenceException`).
 - **Breaking: corelib is five assemblies.** The one `com.openugd.corelib` runtime assembly of 0.6.1 is
   split by concern, inside this one package. Each assembly is named as if it were its own package:
 
@@ -390,6 +378,19 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   assembly, and an implementer that actually used the parameter dynamically would have built a call
   site and thrown `ExecutionEngineException` under IL2CPP on device. Nothing here did — but the trap
   was loaded and pointed at the log, which is where a failure is least likely to be noticed.
+- **Breaking: the Unity messages of `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` are
+  `protected virtual`** (audit CC-6, UH-9): `Awake`, `Update`, `FixedUpdate`, `LateUpdate`,
+  `OnApplicationFocus`, `OnApplicationPause`, `OnApplicationQuit` and `OnDestroy` on `ContextBehaviour`;
+  `Awake` and `OnDestroy` on `ViewBehaviour`; `Awake`, `Start`, `OnEnable`, `OnDisable` and `OnDestroy` on
+  `SignalMonoBehaviour`. They were private, so a subclass that declared, say, its own `Update` silently
+  replaced the base's — `OnUpdate` stopped firing, or the scope was never ended — because Unity finds the
+  method by name. Such a subclass now gets warning CS0114. Migration: declare the method
+  `protected override` and call `base` (`base.Awake()` first).
+- **Breaking: `ViewBehaviour.OnAwake` is removed.** It existed only because `Awake` was private. Migration:
+  override `Awake` and call `base.Awake()` first.
+- `ViewBehaviour.Lifetime` is public. It was `protected`, so nothing outside the view could bind to the
+  view's destruction, although the type's documentation said that was its purpose (audit CC-5). Reading it
+  before `Awake` throws `InvalidOperationException` (it threw `NullReferenceException`).
 - **Breaking: `ICoroutineProvider.StartCoroutine` must never return `null`** — an implementation that
   cannot start the coroutine throws. `CoroutineProvider` used to return `null` for an inactive host, so
   the scheduled work simply never ran and nothing said so.
@@ -431,13 +432,14 @@ View.sprite = Model` set the sprite once and never updated it.
 
 It is replaced by two hooks split by responsibility rather than by time:
 
-- **`OnViewAdded`** runs once each time a view is attached, with `View` already set. Wiring goes here:
-  event listeners, subscriptions, anything registered on the presenter's `Lifetime`. It is the "connect
-  this view" hook, and it runs exactly as many times as a view is attached.
+- **`OnViewAdded`** runs once each time a view is attached, with `View` and a fresh `ViewLifetime` already
+  set. Wiring goes here: event listeners and subscriptions on the view, each with its clean-up registered
+  on `ViewLifetime`, which ends before that view is detached or replaced. It is the "connect this view"
+  hook, and it runs exactly as many times as a view is attached.
 - **`OnRefresh`** renders the current model into the current view, and must be idempotent. It runs on
   every `SetModel` and on every explicit `Refresh()`, and it runs only while the presenter is live — a
-  presenter with no view, or whose `Lifetime` has terminated, is skipped rather than guarded at every
-  call site.
+  presenter with no view, whose `Lifetime` has terminated, or whose Unity view has been destroyed, is
+  skipped rather than guarded at every call site.
 
 Neither hook waits for the other. A presenter with a view and no model renders its empty state; a
 presenter with a model and no view renders nothing and renders correctly as soon as a view arrives.
@@ -451,7 +453,7 @@ error, and invisible until someone looked at the screen.
 `ISubscribeNotify`, `Widget.Internal.Ready` and the per-widget notification `Signal` that existed only
 to drive `OnReady` are gone with it.
 
-Note that the type names above are the 1.x ones. `Widget` is now `Presenter` throughout — see the
+Note that the type names above are the 0.6.x ones. `Widget` is now `Presenter` throughout — see the
 rename entry near the top of this section for the full table.
 
 ### Fixed
@@ -475,7 +477,7 @@ rename entry near the top of this section for the full table.
   itself during a write, failed with "Collection was modified". The list is now copied on every change and
   swapped in whole under a lock; a write reads it without one.
 - **A write allocates nothing of its own** (audit UH-17). A derived logger rebuilt its tag path, one string
-  per level, for every record that passed its own filter — before the root's filter could still drop it.
+  per tag segment, for every record that passed its own filter — before the root's filter could still drop it.
   The path is now built once, when the logger is derived, and the one level test includes the root's.
 
 

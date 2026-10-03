@@ -42,6 +42,10 @@ namespace OpenUGD.Presenters
         /// Constructs <paramref name="presenterType"/> with <see cref="OpenUGD.Context.Instantiate"/>, which picks
         /// the constructor, resolves its parameters and fills in the <c>[Inject]</c> members.
         /// </summary>
+        /// <remarks>
+        /// Attaching the result injects it again, through <see cref="Inject"/>. A context has one instance per
+        /// contract, so the second pass assigns what the first one did.
+        /// </remarks>
         /// <param name="presenterType">A concrete type deriving from <see cref="Presenter"/>.</param>
         /// <returns>The new, unattached presenter.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="presenterType"/> is <c>null</c>.</exception>

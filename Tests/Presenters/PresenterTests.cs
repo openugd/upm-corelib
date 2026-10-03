@@ -364,7 +364,9 @@ namespace OpenUGD.Presenters.Tests
         {
             var presenter = new ViewPresenter();
 
-            Assert.Throws<InvalidOperationException>(() => presenter.SetView(new FakeView()));
+            var thrown = Assert.Throws<InvalidOperationException>(() => presenter.SetView(new FakeView()));
+            StringAssert.Contains("SetView was called before the presenter was attached", thrown.Message,
+                "the message names the call that was early, not just the missing Lifetime");
             Assert.Throws<InvalidOperationException>(() => ((IPresenterWithView)presenter).SetView(new FakeView()));
 
             Assert.IsNull(presenter.View);
@@ -654,6 +656,21 @@ namespace OpenUGD.Presenters.Tests
 
             CollectionAssert.AreEqual(new[] { "g:close", "c:close", "p:close" }, log,
                 "closing a presenter must terminate its children first, deepest first");
+        }
+
+        [Test]
+        public void Close_WhatOnInitializeRegisteredAndAttached_UnwindsBeforeOnClose_NewestFirst()
+        {
+            // The documented teardown order holds for what a presenter sets up in OnInitialize too, which is
+            // where it normally sets things up: Attach registers the teardown before Inject and OnInitialize
+            // run, so everything OnInitialize registers or attaches unwinds first, newest first, then OnClose.
+            var log = new List<string>();
+            var presenter = CreateRoot().AddPresenter(new InitializingPresenter(log));
+            log.Clear();
+
+            presenter.Close();
+
+            CollectionAssert.AreEqual(new[] { "child:close", "p:clean-up", "p:close" }, log);
         }
 
         [Test]
@@ -1219,6 +1236,22 @@ namespace OpenUGD.Presenters.Tests
                 RefreshCount++;
                 View.Render(Model?.Text);
             }
+        }
+
+        // Sets up in OnInitialize, as a real presenter does: a clean-up on its Lifetime, then a child.
+        private sealed class InitializingPresenter : Presenter
+        {
+            private readonly List<string> _log;
+
+            public InitializingPresenter(List<string> log) => _log = log;
+
+            protected override void OnInitialize()
+            {
+                Lifetime.AddAction(() => _log.Add("p:clean-up"));
+                AddPresenter(new TreePresenter("child", _log));
+            }
+
+            protected override void OnClose() => _log.Add("p:close");
         }
 
         private sealed class TreePresenter : Presenter

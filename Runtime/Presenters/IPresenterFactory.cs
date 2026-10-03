@@ -33,16 +33,26 @@ namespace OpenUGD.Presenters
     public interface IPresenterFactory
     {
         /// <summary>
-        /// Constructs a presenter of <paramref name="presenterType"/>, with its dependencies supplied. The result is
-        /// not attached; hand it to <see cref="Presenter.Attach"/> or <see cref="Presenter.AddPresenter{T}"/>.
+        /// Constructs a presenter of <paramref name="presenterType"/>, supplying its constructor's dependencies. The
+        /// result is not attached; hand it to <see cref="Presenter.Attach"/> or
+        /// <see cref="Presenter.AddPresenter{T}"/>.
         /// </summary>
         /// <remarks>
+        /// <para>
+        /// <b>Member injection happens at attach.</b> Attaching the result passes it to <see cref="Inject"/>, like
+        /// any other presenter, so this method need only construct it. An implementation whose construction also
+        /// fills the injected members — <c>ContextPresenterFactory</c>'s does, through <c>Context.Instantiate</c> —
+        /// fills them a second time at attach, which changes nothing when the container hands out the same
+        /// instance for a contract each time.
+        /// </para>
+        /// <para>
         /// <b>Managed code stripping.</b> <paramref name="presenterType"/> is annotated for Unity's linker, so a
         /// presenter type written at a call site, as in <c>factory.Create(typeof(ShopPresenter))</c>, keeps its
         /// constructors in a stripped build. An implementation in another assembly should carry the same
         /// annotation on its parameter, through an internal copy of
         /// <c>System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute</c> as this package declares one;
         /// without it the linker reports the mismatch as warning IL2092.
+        /// </para>
         /// </remarks>
         /// <param name="presenterType">A concrete type deriving from <see cref="Presenter"/>.</param>
         /// <returns>The new presenter, never <c>null</c>. Implementations throw rather than return
