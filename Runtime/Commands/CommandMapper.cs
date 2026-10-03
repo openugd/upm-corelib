@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace OpenUGD.Commands
 {
@@ -49,7 +50,8 @@ namespace OpenUGD.Commands
         public Type MessageType => _messageType;
 
         /// <inheritdoc />
-        public Lifetime RegisterCommand(Type commandType, bool oneTime = false)
+        public Lifetime RegisterCommand([DynamicallyAccessedMembers(Trimming.Constructors)] Type commandType,
+            bool oneTime = false)
         {
             if (commandType == null) throw new ArgumentNullException(nameof(commandType));
 
@@ -161,11 +163,16 @@ namespace OpenUGD.Commands
 
         private sealed class Entry
         {
+            // Annotated like the parameter it comes from and the Context.Instantiate parameter it goes to, so
+            // the linker follows the command type through the field instead of losing it here (IL2077).
+            [DynamicallyAccessedMembers(Trimming.Constructors)]
             internal readonly Type CommandType;
+
             internal readonly Lifetime.Definition Definition;
             internal readonly bool OneTime;
 
-            internal Entry(Type commandType, bool oneTime, Lifetime.Definition definition)
+            internal Entry([DynamicallyAccessedMembers(Trimming.Constructors)] Type commandType, bool oneTime,
+                Lifetime.Definition definition)
             {
                 CommandType = commandType;
                 OneTime = oneTime;

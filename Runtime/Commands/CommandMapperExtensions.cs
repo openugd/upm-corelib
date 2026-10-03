@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace OpenUGD.Commands
 {
@@ -14,7 +15,8 @@ namespace OpenUGD.Commands
         /// <param name="oneTime">Terminate the registration after it has run once.</param>
         /// <returns>The registration's scope.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="mapper"/> is null.</exception>
-        public static Lifetime RegisterCommand<TCommand>(this ICommandMapper mapper, bool oneTime = false)
+        public static Lifetime RegisterCommand<[DynamicallyAccessedMembers(Trimming.Constructors)] TCommand>(
+            this ICommandMapper mapper, bool oneTime = false)
             where TCommand : ICommand
         {
             if (mapper == null) throw new ArgumentNullException(nameof(mapper));
@@ -30,7 +32,8 @@ namespace OpenUGD.Commands
         /// <param name="oneTime">Terminate the registration after it has run once.</param>
         /// <returns>The registration's scope.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="map"/> is null.</exception>
-        public static Lifetime Map<TMessage, TCommand>(this IMapCommand map, bool oneTime = false)
+        public static Lifetime Map<TMessage, [DynamicallyAccessedMembers(Trimming.Constructors)] TCommand>(
+            this IMapCommand map, bool oneTime = false)
             where TMessage : IMessage
             where TCommand : ICommand
         {

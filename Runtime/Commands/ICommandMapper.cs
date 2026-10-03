@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace OpenUGD.Commands
 {
@@ -17,6 +18,16 @@ namespace OpenUGD.Commands
         /// <summary>
         /// Registers <paramref name="commandType"/> to run whenever this mapper's message is told.
         /// </summary>
+        /// <remarks>
+        /// <b>Managed code stripping (IL2CPP).</b> Nothing in a player calls a command's constructor except
+        /// <see cref="Context.Instantiate(Type, object[])"/>, by reflection, so the linker keeps it only because
+        /// this parameter is annotated for it: a type written at the call — <c>typeof(BuyCommand)</c>, or the
+        /// type argument of <see cref="CommandMapperExtensions.RegisterCommand{TCommand}"/> and
+        /// <see cref="CommandMapperExtensions.Map{TMessage, TCommand}"/> — keeps its constructors. A type the
+        /// linker cannot trace, read from data or passed on by an unannotated generic method of your own, does
+        /// not: put <c>[Inject]</c> on the command's constructor, as the <c>com.openugd.context</c> README
+        /// describes.
+        /// </remarks>
         /// <param name="commandType">
         /// A concrete class implementing <see cref="ICommand"/>. Instantiated once per message.
         /// </param>
@@ -35,6 +46,7 @@ namespace OpenUGD.Commands
         /// <exception cref="InvalidOperationException">
         /// This mapper's scope has already terminated, so the registration could never run.
         /// </exception>
-        Lifetime RegisterCommand(Type commandType, bool oneTime = false);
+        Lifetime RegisterCommand([DynamicallyAccessedMembers(Trimming.Constructors)] Type commandType,
+            bool oneTime = false);
     }
 }

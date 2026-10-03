@@ -174,6 +174,16 @@ This is the whole public surface of the package.
 Composition itself lives in [`com.openugd.context`](https://github.com/openugd/upm-context): `Context`,
 `ContextBuilder`, `ServiceCollection`, `[Inject]`. CoreLib is the Unity boundary around it.
 
+## Commands and managed code stripping
+
+A command is registered by its type and built by `Context.Instantiate`, by reflection, each time its
+message is told. Unity's linker keeps the constructor of a command type written at the registration call:
+`RegisterCommand<BuyCommand>()`, `Map<BuyMessage, BuyCommand>()` and `RegisterCommand(typeof(BuyCommand))`
+all keep it, at Medium and High stripping. A type the linker cannot trace does not keep it — one read from
+data, or one passed on by a generic method of your own without the annotation. Put `[Inject]` on that
+command's constructor, as the [`com.openugd.context`](https://github.com/openugd/upm-context) README
+describes under "Managed code stripping".
+
 ## Samples
 
 Import them from the Package Manager window: select CoreLib, then the Samples tab.

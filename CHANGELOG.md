@@ -170,7 +170,8 @@ entries under *Changed*.
   drive `Presenter.Internal`, the attach sequence a presenter-opening service uses.
 - Edit Mode test suites, one per tested assembly: `com.openugd.presenters.tests` (45 tests over the
   presenter tree, the two hooks, the deleted surface and the presenter open sequence) and
-  `com.openugd.commands.tests` (4 tests over the command mapper). None of them needs a Unity runtime.
+  `com.openugd.commands.tests` (9 tests over the command mapper and its stripping annotations). None of
+  them needs a Unity runtime.
 
 ### Changed
 
@@ -265,6 +266,15 @@ entries under *Changed*.
   the message except through the container mutation that was the defect. The consolation is that
   `ICommandMapperRemove` — declared since 0.6.1 and implemented by nothing, because a factory delegate
   is not a key — is now implemented by `CommandMapper`.
+
+  Because a type replaces the factory, nothing in a player calls a command's constructor except
+  `Context.Instantiate`, by reflection, and IL2CPP managed code stripping would remove it: checked with
+  Unity's own linker, every command then failed to build at `Tell`. So `RegisterCommand(Type)` (on
+  `ICommandMapper` and `CommandMapper`), `RegisterCommand<TCommand>()` and `Map<TMessage, TCommand>()`
+  carry `[DynamicallyAccessedMembers]` for constructors, as `com.openugd.context`'s registration points
+  do: a command type written at the registration call keeps its constructors at Medium and High
+  stripping. Migration: register with a type argument or `typeof`; a `Type` read from data, or passed on by
+  a generic method of your own, needs `[Inject]` on the command's constructor.
 - **Breaking: `CommandMap(Lifetime, IInjector)` → `CommandMap(Lifetime, Context)`;
   `CommandMapper(Lifetime, Type, IInjector)` → `CommandMapper(Lifetime, Type, Context)`.**
 - **Breaking: `Logger`'s six write methods take `object` instead of `dynamic`.** Source-compatible at
