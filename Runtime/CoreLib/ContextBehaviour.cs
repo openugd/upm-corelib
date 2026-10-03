@@ -50,8 +50,10 @@ namespace OpenUGD.Core
     /// interface, <c>StartCoroutine</c> throws <see cref="InvalidOperationException"/> when the behaviour is
     /// destroyed, inactive or disabled, as the interface requires; Unity's own
     /// <see cref="MonoBehaviour.StartCoroutine(IEnumerator)"/>, still callable on the class, returns
-    /// <c>null</c> instead. <i>Changed in 2.0.0</i> — the interface was satisfied by that inherited method, so
-    /// a coroutine scheduled on an inactive context silently never ran (audit CC-8).
+    /// <c>null</c> instead. It works from the boot, which <c>Awake</c> runs, and it returns a handle even for a
+    /// coroutine that finishes in its first step, as <see cref="CoroutineProvider"/> does — which also says how
+    /// to stop one. <i>Changed in 2.0.0</i> — the interface was satisfied by that inherited method, so a
+    /// coroutine scheduled on an inactive context silently never ran (audit CC-8).
     /// </para>
     /// <para>
     /// <b>Ordering.</b> Nothing here waits for the boot. The six signals exist from <c>Awake</c> and fire
@@ -307,8 +309,8 @@ namespace OpenUGD.Core
         /// <param name="enumerator">The coroutine body.</param>
         /// <returns>The running coroutine.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="enumerator"/> is <c>null</c>.</exception>
-        /// <exception cref="InvalidOperationException">This behaviour has been destroyed, or is not active and
-        /// enabled.</exception>
+        /// <exception cref="InvalidOperationException">This behaviour has been destroyed or disabled, or its
+        /// GameObject is not active in the hierarchy.</exception>
         Coroutine ICoroutineProvider.StartCoroutine(IEnumerator enumerator) => CoroutineHost.Start(this, enumerator);
 
         /// <summary>

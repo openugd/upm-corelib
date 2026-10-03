@@ -16,9 +16,11 @@ namespace OpenUGD.Utils
     /// <para>
     /// <b>Never returns <c>null</c>.</b> An implementation that cannot start the coroutine must throw.
     /// Returning <c>null</c> would hand the caller a "success" it cannot distinguish from a silent no-op, and
-    /// callers routinely discard the return value. <i>Changed in 2.0.0</i> — <see cref="CoroutineProvider"/>
-    /// used to return <c>null</c> for an inactive host, so the scheduled work simply never ran and nothing
-    /// said so.
+    /// callers routinely discard the return value. That includes a coroutine that finishes inside the call — its
+    /// first step is its last — for which Unity's own <c>StartCoroutine</c> returns <c>null</c>: the
+    /// implementations in this package return a handle for it too. <i>Changed in 2.0.0</i> —
+    /// <see cref="CoroutineProvider"/> used to return <c>null</c> for an inactive host, so the scheduled work
+    /// simply never ran and nothing said so.
     /// </para>
     /// <para>
     /// <b>Lifetime.</b> A coroutine is bound to the host object, not to a <see cref="Lifetime"/>. It stops
@@ -40,7 +42,7 @@ namespace OpenUGD.Utils
         /// <exception cref="System.InvalidOperationException">
         /// The host cannot run coroutines — it has been destroyed, or its <see cref="GameObject"/> is
         /// inactive. The implementations in this package also refuse a disabled host
-        /// (<see cref="Behaviour.isActiveAndEnabled"/>).
+        /// (<see cref="Behaviour.enabled"/> is <c>false</c>), and accept one in its <c>Awake</c>, as Unity does.
         /// </exception>
         Coroutine StartCoroutine(IEnumerator enumerator);
 

@@ -222,16 +222,17 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   the deleted surface and the presenter open sequence, all through public API),
   `com.openugd.commands.tests` (25 tests over the command mapper — registration, its check and its undoing,
   factories, the execution's lifetime, exact-type routing — and its stripping annotations) and
-  `com.openugd.logging.tests` (29 tests over tag paths,
-  the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
-  sink, teardown, and `UseUnityConsole`'s arguments). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
-  26 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which
-  code implements `ICoroutineProvider`, `PlaySession`, including that nothing else in the assembly roots a
-  scope in `Lifetime.Eternal`, and that no component property creates a scope), and 32 marked
-  `RequiresUnity` cover `ViewBehaviour`'s scope and `CloseWith`, a destroyed view skipping `Refresh`,
-  `PersistAcrossScenes` on a root and on a child, a boot cancelled by destruction, a failing `OnStarted` and
-  a failing `Rebuild` teardown, overrides that call `base`, coroutines through `ICoroutineProvider`, component
-  scopes and `OnQuit` at the end of the play session, `GetLifetime` and `LifetimeBehaviour`, and
+  `com.openugd.logging.tests` (29 tests over tag paths, the filters, `IsEnabled`, sink fan-out, writes and
+  subscriptions from other threads and from inside a sink, teardown, and `UseUnityConsole`'s arguments).
+  `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary: 30 tests need no Unity
+  runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which code implements
+  `ICoroutineProvider` and how it checks the host, the wrapper that keeps a handle for a coroutine that ends at
+  once, `PlaySession`, including that nothing else in the assembly roots a scope in `Lifetime.Eternal`, and
+  that no component property creates a scope), and 34 marked `RequiresUnity` cover `ViewBehaviour`'s scope and
+  `CloseWith`, a destroyed view skipping `Refresh`, `PersistAcrossScenes` on a root and on a child, a boot
+  cancelled by destruction, a failing `OnStarted` and a failing `Rebuild` teardown, overrides that call `base`,
+  coroutines through `ICoroutineProvider` (including from the boot in `Awake`, and one that ends at once),
+  component scopes and `OnQuit` at the end of the play session, `GetLifetime` and `LifetimeBehaviour`, and
   `SignalMonoBehaviour` on a GameObject that is never activated.
 
 ### Changed
@@ -420,9 +421,13 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - **Breaking: `ICoroutineProvider.StartCoroutine` must never return `null`** — an implementation that
   cannot start the coroutine throws. `CoroutineProvider` used to return `null` for an inactive host, so
   the scheduled work simply never ran and nothing said so.
-- `CoroutineProvider` checks `isActiveAndEnabled` instead of `gameObject.activeSelf`, rejects a null or
-  destroyed host in the constructor, and is `sealed`. The old check read only the host's own flag and
-  ignored its parents, so a host under a deactivated parent passed and then threw from inside Unity.
+- `CoroutineProvider` checks that the host is enabled and its GameObject `activeInHierarchy` instead of
+  `gameObject.activeSelf`, rejects a null or destroyed host in the constructor, and is `sealed`. The old check
+  read only the host's own flag and ignored its parents, so a host under a deactivated parent passed and then
+  threw from inside Unity. The check is not `isActiveAndEnabled`, which Unity reports `false` until the host's
+  `OnEnable`, so it would refuse a coroutine started from `Awake`. The coroutine Unity runs wraps the body you
+  pass, so that a body that finishes in its first step still gets a handle; stop it through the provider or with
+  `StopAllCoroutines`, not with `MonoBehaviour.StopCoroutine(IEnumerator)`.
 - `SynchronizationContextWrapper` rejects a `null` context. `SynchronizationContext.Current` is `null`
   on any thread with no installed context; the null used to be stored and every later `Send`/`Post`
   threw `NullReferenceException` far from the cause.
@@ -565,6 +570,12 @@ rename entry near the top of this section for the full table.
   `StartCoroutine` throws `ArgumentNullException` for a `null` body and `InvalidOperationException` when the
   behaviour is destroyed, inactive or disabled, and never returns `null`; `StopCoroutine` is a no-op on a
   destroyed behaviour. Calling `StartCoroutine` on the class itself still reaches Unity's method.
+  - It works from the boot, which `Awake` runs. The checks read `enabled` and `activeInHierarchy`, not
+    `isActiveAndEnabled`, which Unity reports `false` until `OnEnable` — so a service that started a coroutine
+    while its context booted would otherwise have failed the boot. `CoroutineProvider` had the same flaw.
+  - A coroutine that finishes inside `StartCoroutine` — its first step is its last — runs and returns a handle.
+    Unity's own method returns `null` for it; the body is wrapped so that it stays alive one more, empty, frame,
+    instead of the provider reporting a coroutine that ran as one Unity refused.
 - **A failed `OnStarted` no longer leaves its context published and running** (audit CC-28). `Context` was
   set before `OnStarted` ran and stayed set when it threw, so code that checked `Context != null` used a
   context whose start had failed. The context is now disposed and `Context` is `null` again before

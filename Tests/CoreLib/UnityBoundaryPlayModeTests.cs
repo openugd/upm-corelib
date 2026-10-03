@@ -336,6 +336,34 @@ namespace OpenUGD.Tests
             Assert.Throws<InvalidOperationException>(() => provider.StartCoroutine(Frames(1, () => { })));
         }
 
+        // Found in review: the boot runs inside Awake, where isActiveAndEnabled is still false, and the check used to
+        // read it - so a service that started a coroutine while the context booted failed the boot.
+        [UnityTest]
+        public IEnumerator ContextBehaviour_AsCoroutineProvider_WorksFromTheBoot_WhichAwakeRuns()
+        {
+            var behaviour = Create("context").AddComponent<AwakeCoroutineContext>();
+
+            Assert.IsNull(behaviour.StartFailure, "Unity runs a coroutine started in Awake, and so must the provider");
+            Assert.IsNotNull(behaviour.Started);
+            for (var frame = 0; frame < 5 && behaviour.Ran == 0; frame++) yield return null;
+            Assert.AreEqual(1, behaviour.Ran);
+        }
+
+        // Found in review: Unity returns null for a coroutine that ends inside StartCoroutine, and the provider threw
+        // for it although the body had run.
+        [Test]
+        public void ContextBehaviour_AsCoroutineProvider_ACoroutineThatEndsAtOnce_RunsAndReturnsAHandle()
+        {
+            ICoroutineProvider provider = Create("context").AddComponent<PendingContext>();
+            var ran = 0;
+
+            var handle = provider.StartCoroutine(Frames(0, () => ran++));
+
+            Assert.AreEqual(1, ran, "the body ran inside the call");
+            Assert.IsNotNull(handle, "and the interface still hands back a coroutine");
+            Assert.DoesNotThrow(() => provider.StopCoroutine(handle));
+        }
+
         private static IEnumerator Frames(int count, Action then)
         {
             for (var i = 0; i < count; i++) yield return null;
@@ -543,6 +571,35 @@ namespace OpenUGD.Tests
     public sealed class QuittingContext : PendingContext
     {
         public void SendOnApplicationQuit() => OnApplicationQuit();
+    }
+
+    // Starts a coroutine through ICoroutineProvider from its boot, which Awake runs synchronously.
+    public sealed class AwakeCoroutineContext : PendingContext
+    {
+        public Coroutine Started { get; private set; }
+        public Exception StartFailure { get; private set; }
+        public int Ran { get; private set; }
+
+        /// <inheritdoc />
+        protected override Task<Context> CreateContextAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                Started = ((ICoroutineProvider)this).StartCoroutine(Step());
+            }
+            catch (Exception exception)
+            {
+                StartFailure = exception;
+            }
+
+            return base.CreateContextAsync(cancellationToken);
+        }
+
+        private IEnumerator Step()
+        {
+            yield return null;
+            Ran++;
+        }
     }
 
     // Counts how many boots have started.

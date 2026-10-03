@@ -44,6 +44,66 @@ namespace OpenUGD.Tests
             Assert.IsTrue(stop.Any(m => m.DeclaringType?.Name == "CoroutineHost" && m.Name == "Stop"));
         }
 
+        // Found in review. Behaviour.isActiveAndEnabled is Unity's IsAddedToManager, false until OnEnable, so a check
+        // on it refused coroutines started from Awake - where ContextBehaviour runs its boot, services included -
+        // although Unity runs them. Enabled and active in the hierarchy is what it means once OnEnable has run.
+        [Test]
+        public void CoroutineHost_ChecksEnabledAndActiveInHierarchy_NotIsActiveAndEnabled_WhichIsFalseInAwake()
+        {
+            var start = typeof(CoroutineHost).GetMethod(nameof(CoroutineHost.Start),
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var calls = ILCalls.CallsMadeBy(start).Select(m => m.DeclaringType?.Name + "." + m.Name).ToList();
+
+            CollectionAssert.DoesNotContain(calls, "Behaviour.get_isActiveAndEnabled");
+            CollectionAssert.Contains(calls, "Behaviour.get_enabled");
+            CollectionAssert.Contains(calls, "GameObject.get_activeInHierarchy");
+        }
+
+        // Found in review. Unity's StartCoroutine returns null for a coroutine whose first step is its last, so the
+        // "never null" backstop threw for a body that had run in full. The body is wrapped so that it gets a handle.
+        [Test]
+        public void HandleKeeper_ABodyThatEndsInItsFirstStep_RunsInFull_ThenWaitsOneEmptyStep()
+        {
+            var ran = 0;
+            var keeper = new CoroutineHost.HandleKeeper(Body(() => ran++));
+
+            Assert.IsTrue(keeper.MoveNext(), "still running after the first step, so Unity hands back a handle");
+            Assert.AreEqual(1, ran, "the body has run in full");
+            Assert.IsNull(keeper.Current, "the extra step waits one frame and yields nothing of the body's");
+            Assert.IsFalse(keeper.MoveNext());
+            Assert.IsFalse(keeper.MoveNext());
+            Assert.AreEqual(1, ran);
+        }
+
+        [Test]
+        public void HandleKeeper_ABodyThatYields_PassesThroughUnchanged()
+        {
+            var first = new object();
+            var second = new object();
+            var keeper = new CoroutineHost.HandleKeeper(Body(() => { }, first, second));
+
+            Assert.IsTrue(keeper.MoveNext());
+            Assert.AreSame(first, keeper.Current);
+            Assert.IsTrue(keeper.MoveNext());
+            Assert.AreSame(second, keeper.Current);
+            Assert.IsFalse(keeper.MoveNext(), "no extra step for a body that was still running after its first");
+        }
+
+        [Test]
+        public void HandleKeeper_AStepThatThrows_Propagates_ForUnityToLog()
+        {
+            var failure = new InvalidOperationException("step failed");
+            var keeper = new CoroutineHost.HandleKeeper(Body(() => throw failure));
+
+            Assert.AreSame(failure, Assert.Throws<InvalidOperationException>(() => keeper.MoveNext()));
+        }
+
+        private static System.Collections.IEnumerator Body(Action atTheEnd, params object[] yields)
+        {
+            foreach (var value in yields) yield return value;
+            atTheEnd();
+        }
+
         private static MethodInfo Target(Type type, string member)
         {
             var map = type.GetInterfaceMap(typeof(ICoroutineProvider));
