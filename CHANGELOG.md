@@ -168,10 +168,12 @@ entries under *Changed*.
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - `InternalsVisibleTo("com.openugd.presenters.tests")` on `com.openugd.presenters`, so its tests can
   drive `Presenter.Internal`, the attach sequence a presenter-opening service uses.
-- Edit Mode test suites, one per tested assembly: `com.openugd.presenters.tests` (45 tests over the
-  presenter tree, the two hooks, the deleted surface and the presenter open sequence) and
-  `com.openugd.commands.tests` (9 tests over the command mapper and its stripping annotations). None of
-  them needs a Unity runtime.
+- Edit Mode test suites, one per tested assembly, each referencing only what it tests:
+  `com.openugd.presenters.tests` (46 tests over the presenter tree, the two hooks, the deleted surface and
+  the presenter open sequence), `com.openugd.commands.tests` (10 tests over the command mapper and its
+  stripping annotations) and `com.openugd.logging.tests` (14 tests over tag paths, the two filters, sink
+  fan-out and teardown). Each suite also checks that its assembly uses no Unity assembly. None of them
+  needs a Unity runtime. The Unity boundary, `com.openugd.corelib`, has no tests yet.
 
 ### Changed
 
