@@ -196,13 +196,19 @@ public class ScoreLabel : MonoBehaviour
 
 public static class Scores
 {
-    public static readonly Signal<int> Changed = new Signal<int>(PlaySession.Lifetime);
+    // Not a static readonly field: with domain reload disabled a static outlives the session, and a signal
+    // made once would be dead from the second session on. AfterAssembliesLoaded runs each session, after
+    // PlaySession has started it.
+    public static Signal<int> Changed { get; private set; }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterAssembliesLoaded)]
+    private static void OnSessionStart() => Changed = new Signal<int>(PlaySession.Lifetime);
 }
 ```
 
-The scope is created in `Awake` and nowhere earlier, because Unity never sends `OnDestroy` to a GameObject that
-was never active, so a scope created before that might never end; on such a GameObject `GetLifetime` throws
-instead. `ViewBehaviour.Lifetime`, `SignalMonoBehaviour`'s signals and `ContextBehaviour.Lifetime` follow the
+The scope is created in `Awake` and nowhere earlier, because Unity sends `Awake` and `OnDestroy` only to a
+component on an active GameObject, so a scope created before that might never end; on an inactive GameObject
+that has no scope yet `GetLifetime` throws instead. `ViewBehaviour.Lifetime`, `SignalMonoBehaviour`'s signals and `ContextBehaviour.Lifetime` follow the
 same rules: they exist from `Awake`, are nested in the play session, end in `OnDestroy`, and throw
 `InvalidOperationException` if read before `Awake`.
 

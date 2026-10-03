@@ -19,16 +19,22 @@ namespace OpenUGD.Core
     /// <para>
     /// <b>Who uses it.</b> <see cref="LifetimeBehaviour"/> (<c>gameObject.GetLifetime()</c>),
     /// <see cref="ContextBehaviour"/>, <see cref="Presenters.ViewBehaviour"/> and
-    /// <see cref="Utils.Components.SignalMonoBehaviour"/> nest the scope they create in <c>Awake</c> here, so a component that Unity never destroys — one that was never activated, or
-    /// whose <c>OnDestroy</c> a subclass skipped — is reaped with the session instead of staying on
-    /// <see cref="OpenUGD.Lifetime.Eternal"/> for the rest of the process. Pass it to
+    /// <see cref="Utils.Components.SignalMonoBehaviour"/> nest the scope they create in <c>Awake</c> here, so a
+    /// scope that <c>OnDestroy</c> never ends — a subclass skipped <c>base.OnDestroy()</c>, say — is reaped with
+    /// the session instead of staying on <see cref="OpenUGD.Lifetime.Eternal"/> for the rest of the process.
+    /// (A component that is never activated creates no scope at all.) Pass it to
     /// <c>Context.CreateBuilder</c> for a context that is not owned by a <see cref="ContextBehaviour"/>.
     /// </para>
     /// <para>
     /// <b>When a session starts.</b> At <see cref="RuntimeInitializeLoadType.SubsystemRegistration"/>, the
     /// first point Unity runs code in a session, before any scene object is awake: when a player starts, and
     /// each time the editor enters play mode. A session still alive at that point — one that was never ended,
-    /// or the edit-mode session below — is ended first.
+    /// or the edit-mode session below — is ended first. Unity does not order the methods of one load type, so
+    /// code of your own that also runs at <see cref="RuntimeInitializeLoadType.SubsystemRegistration"/> may read
+    /// the session that is about to end: read this lifetime from
+    /// <see cref="RuntimeInitializeLoadType.AfterAssembliesLoaded"/> or later. A static field that holds
+    /// something nested here must be filled again each session, from there, rather than once by its initializer:
+    /// with domain reload disabled the field outlives the session.
     /// </para>
     /// <para>
     /// <b>When it ends.</b> At <see cref="Application.quitting"/>, which Unity raises when a player quits and,

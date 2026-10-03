@@ -170,9 +170,9 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   a GameObject, created in `Awake`, nested in `PlaySession.Lifetime` and ended in `OnDestroy` — the one tested
   GameObject-lifetime adapter, in place of the hand-written copies in samples and projects (audit LS-14).
   `GetLifetime` adds the sealed, one-per-GameObject component the first time and returns the same scope after
-  that; on a GameObject that has never been active, or outside play mode, it throws
-  `InvalidOperationException` and adds nothing, because Unity would never tell that component the object was
-  destroyed. `ViewBehaviour`, `SignalMonoBehaviour` and `ContextBehaviour` follow the same rules.
+  that; on an inactive GameObject that has no scope yet, or outside play mode, it throws
+  `InvalidOperationException` and adds nothing, because Unity would not wake that component, or tell it the
+  object was destroyed, before the GameObject is active again. `ViewBehaviour`, `SignalMonoBehaviour` and `ContextBehaviour` follow the same rules.
 - `ContextBehaviourEditor` — shows `Startup.Status`, the failure message if it faulted, and whether
   `Context` is built. Before 2.0.0 a context that failed to start looked identical in the inspector to
   one that started fine.

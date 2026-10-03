@@ -14,9 +14,10 @@ namespace OpenUGD.Core
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Every call on the same GameObject returns the same scope. Call it from <c>Awake</c> or later. On a
-        /// GameObject that has never been active it throws rather than adding a component: Unity would neither
-        /// wake that component nor tell it the object was destroyed, so its scope could never end.
+        /// Every call on the same GameObject returns the same scope. Call it from <c>Awake</c> or later. On an
+        /// inactive GameObject that has no scope yet it throws rather than adding a component: until the
+        /// GameObject is active Unity would neither wake that component nor tell it the object was destroyed, so
+        /// its scope might never end.
         /// </para>
         /// <code>
         /// signal.Subscribe(gameObject.GetLifetime(), OnScoreChanged); // unsubscribed when the object is destroyed
@@ -25,9 +26,8 @@ namespace OpenUGD.Core
         /// <param name="gameObject">The GameObject. Must be alive.</param>
         /// <returns>The GameObject's scope; already ended if the GameObject is being destroyed.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="gameObject"/> is <c>null</c> or destroyed.</exception>
-        /// <exception cref="InvalidOperationException">Not in play mode; or the GameObject has never been active and
-        /// has no scope yet; or Unity refused to add the component, as it does to an object being
-        /// destroyed.</exception>
+        /// <exception cref="InvalidOperationException">Not in play mode; or the GameObject is inactive and has no
+        /// scope yet; or Unity refused to add the component, as it does to an object being destroyed.</exception>
         public static Lifetime GetLifetime(this GameObject gameObject)
         {
             // Unity's overloaded operator== reports a destroyed object as null.
