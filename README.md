@@ -120,7 +120,8 @@ public class Bootstrap : ContextBehaviour
 
 `BuildAsync` validates the whole graph before constructing anything, constructs in dependency order,
 then runs `AwakeAsync` on every service that implements `IAwakeService` before any `InitializeAsync`.
-Both phases go by dependency rank, not registration order. A failure disposes everything already built
+Both phases go by dependency rank and, within a rank, one service at a time in registration order. A
+failure disposes everything already built
 and no `Context` escapes — see [`com.openugd.context`](https://github.com/openugd/upm-context).
 
 `ContextBehaviour` is the MonoBehaviour entry point. It owns a `Lifetime` that ends with the

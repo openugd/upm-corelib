@@ -15,8 +15,8 @@ nothing else. The composition layer it used to own is gone: `com.openugd.context
 validates the whole graph before constructing anything, and has its own test suite. Read this whole
 section before upgrading — most of it is breaking, and every break is named so you can tell whether it
 reaches you. The three headline breaks are the UI services leaving corelib, the first entry under
-*Removed*, and the split into five assemblies and the rename of `Widget` to `Presenter`, the first two
-entries under *Changed*.
+*Removed*; the split into five assemblies, the first entry under *Changed*; and the rename of `Widget` to
+`Presenter`, further down *Changed*.
 
 ### Removed
 
@@ -169,7 +169,7 @@ entries under *Changed*.
 - `InternalsVisibleTo("com.openugd.presenters.tests")` on `com.openugd.presenters`, so its tests can
   drive `Presenter.Internal`, the attach sequence a presenter-opening service uses.
 - Edit Mode test suites, one per tested assembly, each referencing only what it tests:
-  `com.openugd.presenters.tests` (46 tests over the presenter tree, the two hooks, the deleted surface and
+  `com.openugd.presenters.tests` (47 tests over the presenter tree, the two hooks, the deleted surface and
   the presenter open sequence), `com.openugd.commands.tests` (10 tests over the command mapper and its
   stripping annotations) and `com.openugd.logging.tests` (14 tests over tag paths, the two filters, sink
   fan-out and teardown). Each suite also checks that its assembly uses no Unity assembly. None of them
@@ -248,9 +248,9 @@ entries under *Changed*.
 - **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, Context)`.**
 - **Breaking: `Presenter.Internal.Initialize` takes a `Context`, has no `beforeInitialization` parameter,
   and throws if the lifetime it is handed has already terminated.**
-- **Breaking: `Presenter.Close()` and `Dispose()` finish the whole teardown even when clean-up throws,
-  then report the failures as `Lifetime` 2.0.0 does: one failure as itself, with its stack trace, two or
-  more as one `AggregateException`.** In 0.6.1 the first failure stopped the rest of the teardown, so the
+- **Breaking: `Presenter.Close()` and `Dispose()` close every presenter in the subtree even when clean-up
+  throws, then report the failures as `Lifetime` 2.0.0 does: one failure as itself, with its stack trace,
+  two or more as one `AggregateException`.** In 0.6.1 the first failure stopped the rest of the teardown, so the
   presenters after it never closed. Migration: catch the exception your clean-up throws; expect an
   `AggregateException` only when several fail.
 - **Breaking: `Presenter.Children` is `IReadOnlyList<Presenter>` (a live view), not an array (a fresh

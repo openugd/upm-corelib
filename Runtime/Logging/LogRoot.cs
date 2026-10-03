@@ -34,8 +34,8 @@ namespace OpenUGD.Logging
     /// that wrote the record.
     /// </para>
     /// <para>
-    /// <b><see cref="Dispose"/> throws.</b> It is unimplemented and exists only because
-    /// <see cref="ILog"/> extends <see cref="IDisposable"/>; see the member.
+    /// <b><see cref="Dispose"/> detaches every sink.</b> The root keeps working afterwards, but nothing it
+    /// is given reaches anywhere until a sink is subscribed again; see the member.
     /// </para>
     /// </remarks>
     public class LogRoot : ILog

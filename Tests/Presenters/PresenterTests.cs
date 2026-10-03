@@ -646,6 +646,17 @@ namespace OpenUGD.Presenters.Tests
         }
 
         [Test]
+        public void Root_OnATerminatedLifetime_Throws()
+        {
+            // Root defines its scope with DefineNested, which Lifetime 2.0.0 no longer makes throw on a dead
+            // lifetime. The InvalidOperationException Root documents must still come.
+            var definition = NewDefinition();
+            definition.Terminate();
+
+            Assert.Throws<InvalidOperationException>(() => CreateRoot(definition.Lifetime));
+        }
+
+        [Test]
         public void AttachingTheSamePresenterTwice_Throws()
         {
             var root = CreateRoot();

@@ -160,9 +160,9 @@ namespace OpenUGD.Presenters
         /// Closes this presenter and, with it, its whole subtree. Idempotent.
         /// </summary>
         /// <remarks>
-        /// If clean-up throws — a hook, an action registered on <see cref="Lifetime"/>, or a child's — every
-        /// other clean-up still runs and the presenter is closed either way; the failures are reported when
-        /// the last one has run.
+        /// If clean-up throws — <see cref="OnClose"/>, an action registered on <see cref="Lifetime"/>, or a
+        /// child's — the rest of the subtree still closes and this presenter is closed either way; the
+        /// failures are reported once the last clean-up has run.
         /// </remarks>
         /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
         /// <exception cref="Exception">Exactly one clean-up action threw: that exception, rethrown with its
@@ -215,8 +215,9 @@ namespace OpenUGD.Presenters
                 throw new ArgumentException($"{presenter.GetType().Name} is already a child of {GetType().Name}",
                     nameof(presenter));
 
-            // Defined and checked before the child is linked, so a failure cannot leave a half-attached child
-            // in _children. A scope defined on a terminated lifetime is born terminated rather than throwing.
+            // Defined and checked before the child is linked, so attaching to a closed parent cannot leave a
+            // half-attached child in _children. A scope defined on a terminated lifetime is born terminated
+            // rather than throwing.
             var definition = Lifetime.DefineNested(presenter.GetType().Name);
             if (definition.IsTerminated)
                 throw new InvalidOperationException(
