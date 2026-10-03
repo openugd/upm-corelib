@@ -26,7 +26,8 @@ namespace OpenUGD.Commands.Tests
         [Test]
         public void ICommandMapperRegisterCommand_KeepsTheConstructorsOfTheTypeItIsGiven()
         {
-            var method = typeof(ICommandMapper).GetMethod(nameof(ICommandMapper.RegisterCommand));
+            var method = typeof(ICommandMapper).GetMethod(nameof(ICommandMapper.RegisterCommand),
+                new[] { typeof(Type), typeof(bool) });
 
             AssertKeepsConstructors(method.GetParameters()[0].GetCustomAttributesData(), method.ToString());
         }
@@ -35,7 +36,8 @@ namespace OpenUGD.Commands.Tests
         public void CommandMapperRegisterCommand_KeepsTheConstructorsOfTheTypeItIsGiven()
         {
             // An implementation must repeat the interface's annotation, or the linker reports a mismatch.
-            var method = typeof(CommandMapper).GetMethod(nameof(CommandMapper.RegisterCommand));
+            var method = typeof(CommandMapper).GetMethod(nameof(CommandMapper.RegisterCommand),
+                new[] { typeof(Type), typeof(bool) });
 
             AssertKeepsConstructors(method.GetParameters()[0].GetCustomAttributesData(), method.ToString());
         }

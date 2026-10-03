@@ -256,7 +256,7 @@ This is the whole public surface of the package.
 | `ContextPresenterFactory` | `com.openugd.corelib` | `OpenUGD.Presenters` | The `IPresenterFactory` over `OpenUGD.Context`. |
 | `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
 | `PresenterExtensions` | `com.openugd.presenters` | `OpenUGD.Presenters` | `CloseWith`, which closes a presenter when a lifetime ends; `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
-| `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | Maps message types to command types; each command is built by the `Context`. |
+| `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | Maps each message type, by exact type, to commands built by the `Context` or by a factory; every registration can be undone. |
 | `CommandMapExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | `AddCommandMap()` on a `ServiceCollection`; `MapCommand()` and `Tell(message)` on a `Context`. |
 | `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | `com.openugd.logging` | `OpenUGD.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
 | `UnityLogSink`, `UnityLogSinkExtensions` | `com.openugd.logging.unity` | `OpenUGD.Logging` | A sink that writes to the Unity console, and `UseUnityConsole(lifetime)` to attach one. |
@@ -403,15 +403,82 @@ public class Inventory
 - Loggers are not disposable, so a container that disposes what it built leaves them alone.
   `LogRoot.Dispose()` detaches every sink.
 
-## Commands and managed code stripping
+## Commands
 
-A command is registered by its type and built by `Context.Instantiate`, by reflection, each time its
-message is told. Unity's linker keeps the constructor of a command type written at the registration call:
-`RegisterCommand<BuyCommand>()`, `Map<BuyMessage, BuyCommand>()` and `RegisterCommand(typeof(BuyCommand))`
-all keep it, at Medium and High stripping. A type the linker cannot trace does not keep it — one read from
-data, or one passed on by a generic method of your own without the annotation. Put `[Inject]` on that
-command's constructor, as the [`com.openugd.context`](https://github.com/openugd/upm-context) README
-describes under "Managed code stripping".
+A message is a class that implements `IMessage`; a command is a class that implements `ICommand` and runs once
+for each message it is mapped to. `AddCommandMap()` registers the map; `Map` maps, `Tell` sends.
+
+```csharp
+using OpenUGD;
+using OpenUGD.Commands;
+
+public sealed class BuyMessage : IMessage
+{
+    public BuyMessage(string item) => Item = item;
+
+    public string Item { get; }
+}
+
+public interface IShop
+{
+    void Buy(string item);
+}
+
+// Built for each message. Its constructor may take the message, a Lifetime (this execution's, which ends when
+// Execute returns), a Lifetime.Definition (its registration: terminate it to unregister) and any service.
+public sealed class BuyCommand : ICommand
+{
+    private readonly BuyMessage _message;
+    private readonly IShop _shop;
+
+    public BuyCommand(BuyMessage message, IShop shop)
+    {
+        _message = message;
+        _shop = shop;
+    }
+
+    public void Execute() => _shop.Buy(_message.Item);
+}
+
+public static class ShopCommands
+{
+    public static void Wire(Context context, IShop shop)
+    {
+        var map = context.MapCommand();
+
+        // By type: built by Context.Instantiate, by reflection, on every message. Checked now: a constructor
+        // that cannot be satisfied throws here, not on the first Tell.
+        Lifetime.Definition registration = map.Map<BuyMessage, BuyCommand>();
+
+        // By factory: no reflection on Tell, for a message sent often.
+        map.Map<BuyMessage>((message, lifetime) => new BuyCommand(message, shop));
+
+        context.Tell(new BuyMessage("sword")); // runs both
+
+        registration.Terminate(); // unregisters the first; it also ends with the map's scope
+    }
+}
+```
+
+- **Routing is by exact type.** `Tell` finds the mapping for the message's runtime type and nothing else: a
+  mapping for a base class or an interface of the message does not run, and neither does one for a derived
+  type. Map each concrete message type you send.
+- **Every registration returns its `Lifetime.Definition`.** Terminate or dispose it to unregister;
+  `ICommandMapperRemove.Remove<T>()` removes every registration of a command type.
+- **One failing command does not stop the others.** They all run, and the failures arrive together as one
+  `AggregateException`.
+- **Main thread.** Registering, removing and telling are not thread-safe. A command may register, remove or tell
+  from inside `Execute`; a registration made during a dispatch runs from the next one.
+
+### Managed code stripping
+
+A command registered by type is built by `Context.Instantiate`, by reflection. Unity's linker keeps the
+constructor of a command type written at the registration call: `RegisterCommand<BuyCommand>()`,
+`Map<BuyMessage, BuyCommand>()` and `RegisterCommand(typeof(BuyCommand))` all keep it, at Medium and High
+stripping. A type the linker cannot trace does not keep it — one read from data, or one passed on by a generic
+method of your own without the annotation. Put `[Inject]` on that command's constructor, as the
+[`com.openugd.context`](https://github.com/openugd/upm-context) README describes under "Managed code
+stripping", or register a factory, which the linker sees through.
 
 ## Samples
 

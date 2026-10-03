@@ -210,7 +210,8 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   outlives a replaced view and a re-attached view is subscribed twice (audit WG-4, CC-10).
 - `PresenterExtensions.GetChildren(...)` — the two `Presenter.GetChildren` instance methods became
   extension methods. Call sites are unchanged as long as `OpenUGD.Presenters` is imported.
-- `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
+- `CommandMapperExtensions.RegisterCommand<TCommand>()`, `IMapCommand.Map<TMessage, TCommand>()` and
+  `IMapCommand.Map<TMessage>(Func<TMessage, Lifetime, ICommand> factory)`.
 - `ILog.IsEnabled(LogFlags)`, to skip building a message that would be dropped, and `ILog.Tag`, the full
   dotted path a logger's records carry.
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
@@ -218,8 +219,10 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
   `com.openugd.presenters.tests` (84 tests over the presenter tree built with a hand-written
   `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach` and a failed attach, `CloseWith`, the guards,
-  the deleted surface and the presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
-  command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
+  the deleted surface and the presenter open sequence, all through public API),
+  `com.openugd.commands.tests` (25 tests over the command mapper — registration, its check and its undoing,
+  factories, the execution's lifetime, exact-type routing — and its stripping annotations) and
+  `com.openugd.logging.tests` (27 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
   sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
   26 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which
@@ -368,24 +371,29 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `PresenterExtensions.GetChildren<T>(recursively: true)` is now plain depth-first. The old order emitted
   all matching direct children and only then recursed. There was no caller and the order was
   undocumented, so the simpler one is now the documented one.
-- **Breaking: `ICommandMapper.RegisterCommand(Func<Lifetime, ICommand>, bool)` is now
-  `RegisterCommand(Type, bool)`.** A command is described by its type and built with
-  `Context.Instantiate`, which offers the message, the registration's `Lifetime.Definition` and its
-  `Lifetime` as constructor arguments and resolves the rest. `Map<Msg>().RegisterCommand(l => new
-  BuyCommand())` becomes `Map<Msg>().RegisterCommand<BuyCommand>()`, and a message that arrived on an
-  `[Inject]` field becomes a constructor parameter. It has to change: the factory form cannot receive
-  the message except through the container mutation that was the defect. The consolation is that
-  `ICommandMapperRemove` — declared since 0.6.1 and implemented by nothing, because a factory delegate
-  is not a key — is now implemented by `CommandMapper`.
+- **Breaking: `ICommandMapper.RegisterCommand(Func<Lifetime, ICommand>, bool)` is replaced by
+  `RegisterCommand(Type, bool)` and `RegisterCommand(Func<object, Lifetime, ICommand>, bool)`, and both
+  return the registration's `Lifetime.Definition` instead of its `Lifetime`.** The 0.6.1 factory could not
+  receive the message except through the container mutation that was the defect; the new one is handed the
+  message and the execution's `Lifetime`. A command registered by type is built with `Context.Instantiate`,
+  which offers the message, the registration's `Lifetime.Definition` and the execution's `Lifetime` as
+  constructor arguments and resolves the rest. Migration: `Map<Msg>().RegisterCommand(l => new BuyCommand())`
+  becomes `Map<Msg>((message, lifetime) => new BuyCommand(message))`, or `Map<Msg, BuyCommand>()` with the
+  message, which arrived on an `[Inject]` field, taken as a constructor parameter. Code that stored the
+  returned `Lifetime` compiles unchanged — a `Lifetime.Definition` converts to it implicitly — but a call on
+  it such as `AddAction` needs `.Lifetime`. `ICommandMapperRemove` — declared since 0.6.1 and implemented by
+  nothing, because a factory delegate is not a key — is now implemented by `CommandMapper`.
 
-  Because a type replaces the factory, nothing in a player calls a command's constructor except
-  `Context.Instantiate`, by reflection, and IL2CPP managed code stripping would remove it: checked with
-  Unity's own linker, every command then failed to build at `Tell`. So `RegisterCommand(Type)` (on
-  `ICommandMapper` and `CommandMapper`), `RegisterCommand<TCommand>()` and `Map<TMessage, TCommand>()`
-  carry `[DynamicallyAccessedMembers]` for constructors, as `com.openugd.context`'s registration points
-  do: a command type written at the registration call keeps its constructors at Medium and High
-  stripping. Migration: register with a type argument or `typeof`; a `Type` read from data, or passed on by
-  a generic method of your own, needs `[Inject]` on the command's constructor.
+  Nothing in a player calls the constructor of a command registered by type except `Context.Instantiate`, by
+  reflection, and IL2CPP managed code stripping would remove it: checked with Unity's own linker, every
+  command then failed to build at `Tell`. So `RegisterCommand(Type)` (on `ICommandMapper` and
+  `CommandMapper`), `RegisterCommand<TCommand>()` and `Map<TMessage, TCommand>()` carry
+  `[DynamicallyAccessedMembers]` for constructors, as `com.openugd.context`'s registration points do: a
+  command type written at the registration call keeps its constructors at Medium and High stripping.
+  Migration: register with a type argument or `typeof`; a `Type` read from data, or passed on by a generic
+  method of your own, needs `[Inject]` on the command's constructor — or register a factory.
+- **Breaking: a command's `Lifetime` constructor argument is the execution's, not the registration's.** It
+  ends when `Execute` returns; the registration is the `Lifetime.Definition` argument. See *Fixed*.
 - **Breaking: `CommandMap(Lifetime, IInjector)` → `CommandMap(Lifetime, Context)`;
   `CommandMapper(Lifetime, Type, IInjector)` → `CommandMapper(Lifetime, Type, Context)`.**
 - **Breaking: `Logger`'s six write methods take `object` instead of `dynamic`** (and are renamed, see
@@ -497,6 +505,26 @@ rename entry near the top of this section for the full table.
 - **A write allocates nothing of its own** (audit UH-17). A derived logger rebuilt its tag path, one string
   per tag segment, for every record that passed its own filter — before the root's filter could still drop it.
   The path is now built once, when the logger is derived, and the one level test includes the root's.
+- **Command registrations can be undone, are checked when they are made, and give each execution its own
+  scope** (audit CC-22, UH-16).
+  - `RegisterCommand`, `Map<TMessage, TCommand>()` and `RegisterCommand<TCommand>()` return the registration's
+    `Lifetime.Definition`; terminating or disposing it unregisters that one registration. Before, the only
+    public way out was `ICommandMapperRemove`, which removes every registration of a type and is not on
+    `ICommandMapper`.
+  - A command registered by type is checked at registration: if no constructor that `Context.Instantiate`
+    would use can be satisfied from the message, the registration, the execution's lifetime and the context's
+    services, `RegisterCommand` throws `ArgumentException` naming the parameter. Before, every `Tell` failed,
+    from wherever the message was sent.
+  - Each execution gets a fresh `Lifetime`, nested in the registration's and terminated when `Execute` returns
+    or throws. The `Lifetime` a command took was its registration's, so clean-up a command registered on it —
+    a subscription, say — piled up for as long as the registration lived, one more per message.
+  - `Map<TMessage>((message, lifetime) => command)` and `RegisterCommand(Func<object, Lifetime, ICommand>)`
+    build the command with a factory, so `Tell` uses no reflection. A command registered by type is still built
+    by `Context.Instantiate`, by reflection, on every message.
+  - `Tell` no longer copies the list of commands, or of listeners, on every message: the lists are replaced
+    when they change, and a dispatch walks the one it started with.
+  - Routing stays by exact runtime type, now stated in `CommandMap.Tell` and the README as well as on
+    `IMessage` and `IMapCommand`.
 - **`SignalMonoBehaviour` no longer leaves a scope behind on a GameObject that is never activated** (audit
   UH-10, CC-27). Its signal properties created the scope on first read, so reading one on an inactive
   GameObject that was then destroyed without ever being activated — which Unity does without `OnDestroy` —

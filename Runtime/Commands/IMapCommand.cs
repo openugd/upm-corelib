@@ -38,7 +38,7 @@ namespace OpenUGD.Commands
         /// <para>
         /// For the common case of attaching a single command, prefer the one-line
         /// <c>CommandMapperExtensions.Map&lt;TMessage, TCommand&gt;</c>, which is this call followed by
-        /// <see cref="ICommandMapper.RegisterCommand"/>.
+        /// <see cref="ICommandMapper.RegisterCommand(System.Type, bool)"/>.
         /// </para>
         /// </remarks>
         /// <typeparam name="TMessage">The message type to register commands against.</typeparam>
