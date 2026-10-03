@@ -792,8 +792,8 @@ Behaviour that compiles unchanged:
 
 - `OnRefresh` runs on every view attach as well as on every model change, and never without a live view, so the
   `View != null` guards go. `OnViewAfterRemoved` no longer runs on the first attach.
-- `SetView` before the presenter is attached throws `InvalidOperationException` (0.6.1 half-applied it); after
-  close it does nothing.
+- `SetView` before the presenter is attached throws `InvalidOperationException`; 0.6.1 took the view and ran
+  `OnViewAdded` on a widget that had not been injected yet. After close it does nothing.
 - The object-typed `SetView(object)` and `SetModel(object)` throw `ArgumentException` naming the presenter for a
   value of the wrong type, instead of `InvalidCastException`.
 - `Close()` closes the whole subtree even when clean-up throws, then rethrows one failure as itself or several as
@@ -970,7 +970,8 @@ public sealed class ObservableValue<T>
 | `Current` | `Value` |
 | `Prev` | the second argument of a `Changed` handler |
 | `SubscribeOnChange(lifetime, v => ... v.Current ...)` | `Changed.Subscribe(lifetime, (current, previous) => ...)` |
-| `ForceFire()`, implicit conversion to `T` | the same |
+| `ForceFire()` | `ForceFire()`, which passes the current value as both arguments |
+| implicit conversion to `T` | the same |
 
 `DisposableHandler` duplicated `Lifetime.Definition`, which is already an idempotent `IDisposable`:
 
