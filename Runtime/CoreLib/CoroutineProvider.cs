@@ -10,10 +10,12 @@ namespace OpenUGD.Utils
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Use this when the host <see cref="MonoBehaviour"/> is not yours to modify. When it is, implement
-    /// <see cref="ICoroutineProvider"/> on it directly — <see cref="MonoBehaviour"/>'s own
-    /// <c>StartCoroutine</c>/<c>StopCoroutine</c> already satisfy the interface, so it costs one base-list
-    /// entry and no code.
+    /// Use this to run coroutines on any <see cref="MonoBehaviour"/>, yours or not. Implementing
+    /// <see cref="ICoroutineProvider"/> on a <see cref="MonoBehaviour"/> of your own is not free: its
+    /// inherited <c>StartCoroutine</c> compiles against the interface but breaks the contract — Unity
+    /// returns <c>null</c> for an inactive GameObject, after logging an error — so the type has to implement
+    /// the interface explicitly, with the checks this class makes. <c>ContextBehaviour</c> does; anything
+    /// else can hand out <c>new CoroutineProvider(this)</c> instead.
     /// </para>
     /// <para>
     /// <b>Breaking changes in 2.0.0.</b> <see cref="StartCoroutine"/> now throws instead of returning
@@ -45,44 +47,9 @@ namespace OpenUGD.Utils
         }
 
         /// <inheritdoc/>
-        public Coroutine StartCoroutine(IEnumerator enumerator)
-        {
-            if (enumerator == null)
-            {
-                throw new ArgumentNullException(nameof(enumerator), "Coroutine body cannot be null.");
-            }
-
-            if (_monoBehaviour == null)
-            {
-                throw new InvalidOperationException(
-                    "Cannot start a coroutine: the host MonoBehaviour has been destroyed.");
-            }
-
-            if (!_monoBehaviour.isActiveAndEnabled)
-            {
-                throw new InvalidOperationException(
-                    $"Cannot start a coroutine on '{_monoBehaviour.name}': the host is inactive or disabled. " +
-                    "Unity only runs coroutines on an active GameObject with an enabled Behaviour.");
-            }
-
-            return _monoBehaviour.StartCoroutine(enumerator);
-        }
+        public Coroutine StartCoroutine(IEnumerator enumerator) => CoroutineHost.Start(_monoBehaviour, enumerator);
 
         /// <inheritdoc/>
-        public void StopCoroutine(Coroutine coroutine)
-        {
-            if (coroutine == null)
-            {
-                throw new ArgumentNullException(nameof(coroutine), "Coroutine cannot be null.");
-            }
-
-            // A destroyed host has already stopped everything it was running, so the postcondition holds.
-            if (_monoBehaviour == null)
-            {
-                return;
-            }
-
-            _monoBehaviour.StopCoroutine(coroutine);
-        }
+        public void StopCoroutine(Coroutine coroutine) => CoroutineHost.Stop(_monoBehaviour, coroutine);
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenUGD.Utils;
@@ -38,6 +39,15 @@ namespace OpenUGD.Core
     /// <b>Scenes.</b> By default the GameObject is kept across scene loads with <c>DontDestroyOnLoad</c>, which
     /// Unity applies only to a root object; override <see cref="PersistAcrossScenes"/> to return <c>false</c>
     /// for a context that belongs to its scene.
+    /// </para>
+    /// <para>
+    /// <b>Coroutines.</b> It implements <see cref="ICoroutineProvider"/> explicitly, so a service can be handed
+    /// the behaviour as its coroutine runner (<c>AddInstance&lt;ICoroutineProvider&gt;(this)</c>). Through the
+    /// interface, <c>StartCoroutine</c> throws <see cref="InvalidOperationException"/> when the behaviour is
+    /// destroyed, inactive or disabled, as the interface requires; Unity's own
+    /// <see cref="MonoBehaviour.StartCoroutine(IEnumerator)"/>, still callable on the class, returns
+    /// <c>null</c> instead. <i>Changed in 2.0.0</i> — the interface was satisfied by that inherited method, so
+    /// a coroutine scheduled on an inactive context silently never ran (audit CC-8).
     /// </para>
     /// <para>
     /// <b>Ordering.</b> Nothing here waits for the boot. The six signals exist from <c>Awake</c> and fire
@@ -256,6 +266,25 @@ namespace OpenUGD.Core
         /// that is torn down.
         /// </summary>
         protected virtual void OnDestroy() => _definition?.Terminate();
+
+        /// <summary>
+        /// Starts <paramref name="enumerator"/> as a coroutine on this behaviour, or throws: never returns
+        /// <c>null</c>. See <see cref="ICoroutineProvider.StartCoroutine"/>.
+        /// </summary>
+        /// <param name="enumerator">The coroutine body.</param>
+        /// <returns>The running coroutine.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="enumerator"/> is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException">This behaviour has been destroyed, or is not active and
+        /// enabled.</exception>
+        Coroutine ICoroutineProvider.StartCoroutine(IEnumerator enumerator) => CoroutineHost.Start(this, enumerator);
+
+        /// <summary>
+        /// Stops a coroutine started through <see cref="ICoroutineProvider.StartCoroutine"/>. A no-op once this
+        /// behaviour has been destroyed.
+        /// </summary>
+        /// <param name="coroutine">The coroutine to stop.</param>
+        /// <exception cref="ArgumentNullException"><paramref name="coroutine"/> is <c>null</c>.</exception>
+        void ICoroutineProvider.StopCoroutine(Coroutine coroutine) => CoroutineHost.Stop(this, coroutine);
 
         private void Create()
         {

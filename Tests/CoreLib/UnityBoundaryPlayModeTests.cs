@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using NUnit.Framework;
 using OpenUGD.Core;
 using OpenUGD.Presenters;
+using OpenUGD.Utils;
 using OpenUGD.Utils.Components;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -168,6 +169,62 @@ namespace OpenUGD.Tests
 
             Assert.Greater(behaviour.OwnUpdates, 0);
             Assert.Greater(fired, 0, "the override called base.Update(), so OnUpdate keeps firing");
+        }
+
+        // ------------------------------------------------------------------ ICoroutineProvider (CC-8)
+
+        [Test]
+        public void ContextBehaviour_AsCoroutineProvider_OnAnInactiveObject_Throws_InsteadOfReturningNull()
+        {
+            var behaviour = Create("context").AddComponent<PendingContext>();
+            behaviour.gameObject.SetActive(false);
+            ICoroutineProvider provider = behaviour;
+
+            // Unity's own StartCoroutine would log "Coroutine couldn't be started" and return null here.
+            Assert.Throws<InvalidOperationException>(() => provider.StartCoroutine(Frames(1, () => { })));
+        }
+
+        [Test]
+        public void ContextBehaviour_AsCoroutineProvider_WhenDestroyed_Throws()
+        {
+            var behaviour = Create("context").AddComponent<PendingContext>();
+            ICoroutineProvider provider = behaviour;
+            Object.DestroyImmediate(behaviour.gameObject);
+
+            Assert.Throws<InvalidOperationException>(() => provider.StartCoroutine(Frames(1, () => { })));
+        }
+
+        [UnityTest]
+        public IEnumerator ContextBehaviour_AsCoroutineProvider_RunsTheCoroutine_AndStopsIt()
+        {
+            ICoroutineProvider provider = Create("context").AddComponent<PendingContext>();
+            var ran = 0;
+            var stopped = 0;
+
+            var running = provider.StartCoroutine(Frames(1, () => ran++));
+            var stopping = provider.StartCoroutine(Frames(3, () => stopped++));
+            Assert.IsNotNull(running);
+            provider.StopCoroutine(stopping);
+            for (var frame = 0; frame < 5; frame++) yield return null;
+
+            Assert.AreEqual(1, ran);
+            Assert.AreEqual(0, stopped, "a stopped coroutine does not reach its end");
+        }
+
+        [Test]
+        public void CoroutineProvider_OnAnInactiveHost_Throws()
+        {
+            var host = Create("host").AddComponent<ViewBehaviour>();
+            var provider = new CoroutineProvider(host);
+            host.gameObject.SetActive(false);
+
+            Assert.Throws<InvalidOperationException>(() => provider.StartCoroutine(Frames(1, () => { })));
+        }
+
+        private static IEnumerator Frames(int count, Action then)
+        {
+            for (var i = 0; i < count; i++) yield return null;
+            then();
         }
 
         // ------------------------------------------------------------------ SignalMonoBehaviour (UH-9)

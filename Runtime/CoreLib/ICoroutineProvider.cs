@@ -39,7 +39,8 @@ namespace OpenUGD.Utils
         /// <c>null</c>.</exception>
         /// <exception cref="System.InvalidOperationException">
         /// The host cannot run coroutines — it has been destroyed, or its <see cref="GameObject"/> is
-        /// inactive.
+        /// inactive. The implementations in this package also refuse a disabled host
+        /// (<see cref="Behaviour.isActiveAndEnabled"/>).
         /// </exception>
         Coroutine StartCoroutine(IEnumerator enumerator);
 

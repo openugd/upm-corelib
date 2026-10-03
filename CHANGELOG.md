@@ -208,10 +208,10 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
   sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
-  12 tests need no Unity runtime (`ContextPresenterFactory`, and the shape of the Unity message methods),
-  and 11 marked `RequiresUnity` cover `ViewBehaviour`'s scope and `CloseWith`, a destroyed view skipping
-  `Refresh`, `PersistAcrossScenes` on a root and on a child, a boot cancelled by destruction, and overrides
-  that call `base`.
+  15 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, and
+  which code implements `ICoroutineProvider`), and 15 marked `RequiresUnity` cover `ViewBehaviour`'s scope
+  and `CloseWith`, a destroyed view skipping `Refresh`, `PersistAcrossScenes` on a root and on a child, a
+  boot cancelled by destruction, overrides that call `base`, and coroutines through `ICoroutineProvider`.
 
 ### Changed
 
@@ -487,6 +487,13 @@ rename entry near the top of this section for the full table.
   caller registered on the definition given to `Attach`; `OnClose` does not, because `OnInitialize` never
   completed. If undoing the attach throws too, both arrive as one `AggregateException`, the attach failure
   first.
+- **`ContextBehaviour` honours the `ICoroutineProvider` contract it declares** (audit CC-8). It satisfied the
+  interface with the `StartCoroutine` it inherits from `MonoBehaviour`, which returns `null` (and logs an
+  error) when the GameObject is inactive, so a coroutine a service scheduled through the interface silently
+  never ran. It now implements the interface explicitly, through the same checks as `CoroutineProvider`:
+  `StartCoroutine` throws `ArgumentNullException` for a `null` body and `InvalidOperationException` when the
+  behaviour is destroyed, inactive or disabled, and never returns `null`; `StopCoroutine` is a no-op on a
+  destroyed behaviour. Calling `StartCoroutine` on the class itself still reaches Unity's method.
 - **A presenter whose `OnClose` throws is still unlinked from its parent** (audit CC-4). The unlink came
   after `OnClose` without a `finally`, so the closed presenter stayed in `Children`.
 
