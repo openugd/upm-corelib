@@ -16,8 +16,9 @@ namespace OpenUGD.Core
     /// that registered the instance with <c>Injector.ToValue</c>.
     /// </para>
     /// <para>
-    /// <see cref="ContextBehaviour"/> marks its <c>GameObject</c> <c>DontDestroyOnLoad</c>, which agrees with
-    /// what <see cref="ContextFactoryInstancesComponent"/> does with the instances it creates.
+    /// <see cref="ContextBehaviour"/> marks its <c>GameObject</c> <c>DontDestroyOnLoad</c> by default (see
+    /// <c>PersistAcrossScenes</c>), and the prefab root it sits on is a root object once instantiated, which
+    /// agrees with what <see cref="ContextFactoryInstancesComponent"/> does with the instances it creates.
     /// </para>
     /// <para>
     /// Only cameras are retargeted. A canvas in Screen Space - Overlay mode has its own

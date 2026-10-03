@@ -4,11 +4,49 @@ using System.Collections.Generic;
 namespace OpenUGD.Presenters
 {
     /// <summary>
-    /// Everything a <see cref="Presenter"/> can do that is not one of its three methods. Extension methods,
-    /// so that a consumer can add their own alongside these without the presenter type growing.
+    /// Everything a <see cref="Presenter"/> can do that is not one of its three methods: binding it to a scope
+    /// (<see cref="CloseWith{T}"/>) and reading the tree. Extension methods, so that a consumer can add their own
+    /// alongside these without the presenter type growing.
     /// </summary>
     public static class PresenterExtensions
     {
+        /// <summary>
+        /// Closes <paramref name="presenter"/> when <paramref name="lifetime"/> terminates — typically the
+        /// lifetime of the view it renders, so the presenter ends with the view.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// For a <c>ViewBehaviour</c>: <c>presenter.CloseWith(view.Lifetime)</c>. The binding is undone when either
+        /// side ends first, so a long-lived scope that outlives many presenters does not collect their
+        /// registrations.
+        /// </para>
+        /// <para>
+        /// If <paramref name="lifetime"/> has already terminated, the presenter is closed before this returns,
+        /// as <see cref="OpenUGD.Lifetime.AddAction"/> runs an action on a terminated lifetime. An exception from
+        /// the presenter's clean-up propagates to whoever terminates <paramref name="lifetime"/> — for a view,
+        /// Unity's <c>OnDestroy</c>, which logs it.
+        /// </para>
+        /// </remarks>
+        /// <typeparam name="T">The presenter type, returned unchanged so calls can be chained.</typeparam>
+        /// <param name="presenter">The presenter to close. Must be attached.</param>
+        /// <param name="lifetime">The scope whose end closes it.</param>
+        /// <returns><paramref name="presenter"/>.</returns>
+        /// <exception cref="ArgumentNullException">Either argument is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException"><paramref name="presenter"/> has not been attached
+        /// yet.</exception>
+        public static T CloseWith<T>(this T presenter, Lifetime lifetime) where T : Presenter
+        {
+            if (presenter == null)
+                throw new ArgumentNullException(nameof(presenter), $"{nameof(presenter)} can't be null");
+            if (lifetime == null)
+                throw new ArgumentNullException(nameof(lifetime), $"{nameof(lifetime)} can't be null");
+
+            // Ends when either side ends: the view's end closes the presenter, and the presenter's own end
+            // detaches the binding from the view's lifetime. Close is idempotent, so the second case is a no-op.
+            Lifetime.Intersection(presenter.Lifetime, lifetime).Lifetime.AddAction(presenter.Close);
+            return presenter;
+        }
+
         /// <summary>
         /// The type of view <paramref name="presenter"/> expects, or <c>null</c> if it has no view.
         /// </summary>

@@ -545,6 +545,74 @@ namespace OpenUGD.Presenters.Tests
                 "the exception propagates before OnViewAfterRemoved");
         }
 
+        // ------------------------------------------------------------------ CloseWith
+
+        [Test]
+        public void CloseWith_ClosesThePresenter_WhenTheLifetimeEnds()
+        {
+            var view = NewDefinition();
+            var log = new List<string>();
+            var presenter = CreateRoot().AddPresenter(new TreePresenter("p", log));
+
+            var returned = presenter.CloseWith(view.Lifetime);
+            view.Terminate();
+
+            Assert.AreSame(presenter, returned);
+            Assert.IsTrue(presenter.Lifetime.IsTerminated);
+            CollectionAssert.AreEqual(new[] { "p:initialize", "p:close" }, log);
+        }
+
+        [Test]
+        public void CloseWith_WhenThePresenterClosesFirst_TheLaterEndOfTheLifetimeChangesNothing()
+        {
+            var view = NewDefinition();
+            var log = new List<string>();
+            var presenter = CreateRoot().AddPresenter(new TreePresenter("p", log)).CloseWith(view.Lifetime);
+
+            presenter.Close();
+            Assert.DoesNotThrow(view.Terminate);
+
+            CollectionAssert.AreEqual(new[] { "p:initialize", "p:close" }, log, "closed exactly once");
+        }
+
+        [Test]
+        public void CloseWith_AnEndedLifetime_ClosesThePresenterAtOnce()
+        {
+            var view = NewDefinition();
+            view.Terminate();
+            var presenter = CreateRoot().AddPresenter(new TreePresenter("p", new List<string>()));
+
+            presenter.CloseWith(view.Lifetime);
+
+            Assert.IsTrue(presenter.Lifetime.IsTerminated);
+        }
+
+        [Test]
+        public void CloseWith_ClosingTheViewScope_ClosesTheSubtree_AndLeavesTheParent()
+        {
+            var view = NewDefinition();
+            var parent = CreateRoot().AddPresenter(new TreePresenter("parent", new List<string>()));
+            var presenter = parent.AddPresenter(new TreePresenter("p", new List<string>())).CloseWith(view.Lifetime);
+            var child = presenter.AddPresenter(new TreePresenter("c", new List<string>()));
+
+            view.Terminate();
+
+            Assert.IsTrue(child.Lifetime.IsTerminated);
+            Assert.IsFalse(parent.Lifetime.IsTerminated);
+            CollectionAssert.IsEmpty(parent.Children, "the closed presenter unlinks itself from its parent");
+        }
+
+        [Test]
+        public void CloseWith_RejectsNulls_AndAnUnattachedPresenter()
+        {
+            var attached = CreateRoot().AddPresenter(new TreePresenter("p", new List<string>()));
+
+            Assert.Throws<ArgumentNullException>(() => ((TreePresenter)null).CloseWith(NewDefinition().Lifetime));
+            Assert.Throws<ArgumentNullException>(() => attached.CloseWith(null));
+            Assert.Throws<InvalidOperationException>(
+                () => new TreePresenter("x", new List<string>()).CloseWith(NewDefinition().Lifetime));
+        }
+
         // ------------------------------------------------------------------ the tree
 
         [Test]

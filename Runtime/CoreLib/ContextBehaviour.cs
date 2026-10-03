@@ -27,6 +27,19 @@ namespace OpenUGD.Core
     /// gone with no shim: override <see cref="CreateContextAsync"/> instead.
     /// </para>
     /// <para>
+    /// <b>Subclassing.</b> The Unity messages this class handles — <see cref="Awake"/>, <see cref="Update"/>,
+    /// <see cref="FixedUpdate"/>, <see cref="LateUpdate"/>, <see cref="OnApplicationFocus"/>,
+    /// <see cref="OnApplicationPause"/>, <see cref="OnApplicationQuit"/> and <see cref="OnDestroy"/> — are
+    /// <c>protected virtual</c>. Override one and call <c>base</c>: the base method is what creates the scope,
+    /// fires the signal or ends the scope. Declaring one without <c>override</c> hides it, which the compiler
+    /// reports as warning CS0114.
+    /// </para>
+    /// <para>
+    /// <b>Scenes.</b> By default the GameObject is kept across scene loads with <c>DontDestroyOnLoad</c>, which
+    /// Unity applies only to a root object; override <see cref="PersistAcrossScenes"/> to return <c>false</c>
+    /// for a context that belongs to its scene.
+    /// </para>
+    /// <para>
     /// <b>Ordering.</b> Nothing here waits for the boot. The six signals exist from <c>Awake</c> and fire
     /// from the first frame, which is normally before <see cref="Startup"/> completes; <see cref="Context"/>
     /// is <c>null</c> until it does. Subscribe from <see cref="OnStarted"/>, or check
@@ -65,6 +78,27 @@ namespace OpenUGD.Core
         public ISignal<bool> OnPause => _onPause;
 
         /// <summary>
+        /// Whether <c>Awake</c> (and every <see cref="Rebuild"/>) marks this GameObject
+        /// <c>DontDestroyOnLoad</c>, so the context survives scene loads. <c>true</c> unless overridden.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Override it to return <c>false</c> for a context that belongs to one scene: it is then destroyed with
+        /// that scene, and its <see cref="Lifetime"/>, its signals and the context built under it end there.
+        /// </para>
+        /// <para>
+        /// Unity keeps only root objects across scene loads. On a GameObject that has a parent, <c>true</c>
+        /// changes nothing — the object lives and dies with its root — and a warning says so; move the
+        /// behaviour to a root object, or return <c>false</c>.
+        /// </para>
+        /// <para>
+        /// <i>Changed in 2.0.0</i> — <c>DontDestroyOnLoad</c> was unconditional, so a scene-scoped context
+        /// needed a workaround (audit CC-7).
+        /// </para>
+        /// </remarks>
+        protected virtual bool PersistAcrossScenes => true;
+
+        /// <summary>
         /// The scope this behaviour owns. Created in <c>Awake</c>, terminated in <c>OnDestroy</c>, and
         /// replaced by <see cref="Rebuild"/>. Build the context under it so the context dies with the
         /// GameObject.
@@ -77,7 +111,7 @@ namespace OpenUGD.Core
                     "ContextBehaviour.Lifetime was read before Awake() ran, so there is no scope yet. " +
                     "Unity guarantees Awake on this component runs before any of its own callbacks; if you " +
                     "are reading it from another component's Awake, move that read to Start or to " +
-                    "OnStarted.");
+                    "OnStarted. If a subclass overrides Awake, it must call base.Awake().");
 
         /// <summary>
         /// The context produced by the boot. <c>null</c> until <see cref="Startup"/> completes
@@ -168,24 +202,60 @@ namespace OpenUGD.Core
             Create();
         }
 
-        private void Awake() => Create();
+        /// <summary>
+        /// Unity's <c>Awake</c>: creates the scope and the six signals, applies
+        /// <see cref="PersistAcrossScenes"/>, and starts the boot. <b>Call <c>base.Awake()</c> first</b> when
+        /// overriding; until it has run there is no <see cref="Lifetime"/>.
+        /// </summary>
+        protected virtual void Awake() => Create();
 
-        // Null-conditional throughout: Unity raises these callbacks on any enabled component, and Rebuild()
-        // can be called from a context menu on a component whose Awake has not run (Edit mode is guarded,
-        // but a domain reload or a disabled-then-enabled object is not worth an NRE).
-        private void Update() => _onUpdate?.Fire();
+        // Null-conditional throughout: Unity raises these callbacks on any enabled component, and a subclass
+        // may skip base.Awake() or call a base message before it (not worth an NRE).
 
-        private void FixedUpdate() => _onFixedUpdate?.Fire();
+        /// <summary>
+        /// Unity's <c>Update</c>: fires <see cref="OnUpdate"/>. <b>Call <c>base.Update()</c></b> when
+        /// overriding, or <see cref="OnUpdate"/> stops firing.
+        /// </summary>
+        protected virtual void Update() => _onUpdate?.Fire();
 
-        private void LateUpdate() => _onLateUpdate?.Fire();
+        /// <summary>
+        /// Unity's <c>FixedUpdate</c>: fires <see cref="OnFixedUpdate"/>. <b>Call <c>base.FixedUpdate()</c></b>
+        /// when overriding, or <see cref="OnFixedUpdate"/> stops firing.
+        /// </summary>
+        protected virtual void FixedUpdate() => _onFixedUpdate?.Fire();
 
-        private void OnApplicationFocus(bool focus) => _onFocus?.Fire(focus);
+        /// <summary>
+        /// Unity's <c>LateUpdate</c>: fires <see cref="OnLateUpdate"/>. <b>Call <c>base.LateUpdate()</c></b>
+        /// when overriding, or <see cref="OnLateUpdate"/> stops firing.
+        /// </summary>
+        protected virtual void LateUpdate() => _onLateUpdate?.Fire();
 
-        private void OnApplicationPause(bool pause) => _onPause?.Fire(pause);
+        /// <summary>
+        /// Unity's <c>OnApplicationFocus</c>: fires <see cref="OnFocus"/>. <b>Call
+        /// <c>base.OnApplicationFocus(focus)</c></b> when overriding, or <see cref="OnFocus"/> stops firing.
+        /// </summary>
+        /// <param name="focus">Unity's <c>focus</c> flag.</param>
+        protected virtual void OnApplicationFocus(bool focus) => _onFocus?.Fire(focus);
 
-        private void OnApplicationQuit() => _onQuit?.Fire();
+        /// <summary>
+        /// Unity's <c>OnApplicationPause</c>: fires <see cref="OnPause"/>. <b>Call
+        /// <c>base.OnApplicationPause(pause)</c></b> when overriding, or <see cref="OnPause"/> stops firing.
+        /// </summary>
+        /// <param name="pause">Unity's <c>pause</c> flag.</param>
+        protected virtual void OnApplicationPause(bool pause) => _onPause?.Fire(pause);
 
-        private void OnDestroy() => _definition?.Terminate();
+        /// <summary>
+        /// Unity's <c>OnApplicationQuit</c>: fires <see cref="OnQuit"/>. <b>Call
+        /// <c>base.OnApplicationQuit()</c></b> when overriding, or <see cref="OnQuit"/> stops firing.
+        /// </summary>
+        protected virtual void OnApplicationQuit() => _onQuit?.Fire();
+
+        /// <summary>
+        /// Unity's <c>OnDestroy</c>: terminates <see cref="Lifetime"/>, and with it the signals, a boot still in
+        /// flight and the context built under it. <b>Call <c>base.OnDestroy()</c></b> when overriding, or none of
+        /// that is torn down.
+        /// </summary>
+        protected virtual void OnDestroy() => _definition?.Terminate();
 
         private void Create()
         {
@@ -201,7 +271,21 @@ namespace OpenUGD.Core
             _onFocus = new Signal<bool>(lifetime);
             _onPause = new Signal<bool>(lifetime);
 
-            DontDestroyOnLoad(gameObject);
+            if (PersistAcrossScenes)
+            {
+                if (transform.parent == null)
+                {
+                    DontDestroyOnLoad(gameObject);
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        $"{GetType().Name} on '{name}' asks to persist across scenes, but it is not on a root " +
+                        $"object, and Unity keeps only root objects: it will be destroyed with its root " +
+                        $"'{transform.root.name}'. Move it to a root object, or override PersistAcrossScenes to " +
+                        "return false.", this);
+                }
+            }
 
             var startup = BootAsync(lifetime);
             Startup = startup;

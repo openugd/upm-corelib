@@ -471,9 +471,9 @@ namespace OpenUGD.Presenters
         /// <remarks>
         /// <para>
         /// <b>The scope is the contract.</b> Whoever creates a view ties this presenter's
-        /// <see cref="Presenter.Lifetime"/> to that view's destruction — by closing the presenter when the view's
-        /// scope ends, or by attaching it to a scope that ends with the view — so a live presenter normally has a
-        /// live view.
+        /// <see cref="Presenter.Lifetime"/> to that view's destruction — <c>presenter.CloseWith(view.Lifetime)</c>
+        /// for a <c>ViewBehaviour</c>, or the scope a presenter-opening service attached it to — so a live
+        /// presenter normally has a live view.
         /// </para>
         /// <para>
         /// <b>The view check is the backstop</b>, for a view whose destruction was not tied: a scene object

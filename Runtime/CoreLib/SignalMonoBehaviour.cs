@@ -21,6 +21,12 @@ namespace OpenUGD.Utils.Components
     /// <c>Awake</c> before it returns the reference you would subscribe through.
     /// </para>
     /// <para>
+    /// <b>Subclassing.</b> <see cref="Awake"/>, <see cref="Start"/>, <see cref="OnEnable"/>,
+    /// <see cref="OnDisable"/> and <see cref="OnDestroy"/> are <c>protected virtual</c>. Override one and call
+    /// <c>base</c>, or its signal stops firing — and, for <see cref="OnDestroy"/>, the scope is never released.
+    /// Declaring one without <c>override</c> hides it, which the compiler reports as warning CS0114.
+    /// </para>
+    /// <para>
     /// <b>Caveat.</b> Unity does not run <c>Awake</c>, <c>Start</c> or <c>OnDestroy</c> on a component
     /// attached to an inactive <see cref="GameObject"/> that is never activated. The signals are still
     /// non-null and safe to subscribe to, but such an object destroyed while still inactive will not raise
@@ -98,27 +104,48 @@ namespace OpenUGD.Utils.Components
             _onDestroy = new Signal(lifetime);
         }
 
-        private void Awake() => Initialize();
+        /// <summary>
+        /// Unity's <c>Awake</c>: creates the scope and the signals, if a signal property has not already done so.
+        /// <b>Call <c>base.Awake()</c></b> when overriding.
+        /// </summary>
+        protected virtual void Awake() => Initialize();
 
-        private void Start()
+        /// <summary>
+        /// Unity's <c>Start</c>: raises <see cref="StartSignal"/>. <b>Call <c>base.Start()</c></b> when
+        /// overriding, or the signal never fires.
+        /// </summary>
+        protected virtual void Start()
         {
             Initialize();
             _onStart.Fire();
         }
 
-        private void OnEnable()
+        /// <summary>
+        /// Unity's <c>OnEnable</c>: raises <see cref="EnableSignal"/>. <b>Call <c>base.OnEnable()</c></b> when
+        /// overriding, or the signal never fires.
+        /// </summary>
+        protected virtual void OnEnable()
         {
             Initialize();
             _onEnable.Fire();
         }
 
-        private void OnDisable()
+        /// <summary>
+        /// Unity's <c>OnDisable</c>: raises <see cref="DisableSignal"/>. <b>Call <c>base.OnDisable()</c></b> when
+        /// overriding, or the signal never fires.
+        /// </summary>
+        protected virtual void OnDisable()
         {
             Initialize();
             _onDisable.Fire();
         }
 
-        private void OnDestroy()
+        /// <summary>
+        /// Unity's <c>OnDestroy</c>: raises <see cref="DestroySignal"/>, then terminates this component's scope,
+        /// releasing every subscriber. <b>Call <c>base.OnDestroy()</c></b> when overriding, or neither happens
+        /// and the scope stays on <see cref="Lifetime.Eternal"/> for the rest of the process.
+        /// </summary>
+        protected virtual void OnDestroy()
         {
             // Never initialised - Unity destroyed an object that was never activated. Nothing to fire, and no
             // scope was ever allocated, so there is nothing to release either.

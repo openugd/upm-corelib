@@ -153,8 +153,9 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 
 ### Added
 
-- `ContextBehaviour` — the replacement for `ContextFactoryComponent`. Same six signals, same
-  `DontDestroyOnLoad`, same `[ContextMenu("Rebuild")]`, but the boot is now `Task Startup`: owned,
+- `ContextBehaviour` — the replacement for `ContextFactoryComponent`. Same six signals, the same
+  `DontDestroyOnLoad` by default (now a choice, see `PersistAcrossScenes` below), same
+  `[ContextMenu("Rebuild")]`, but the boot is now `Task Startup`: owned,
   awaitable and observable. A failure reaches `OnStartFailed` *and* faults `Startup` instead of
   vanishing into a discarded task, and an integration test can `await behaviour.Startup` and see the
   real exception. `Context` is `null` until the boot completes. Implements `ICoroutineProvider`.
@@ -162,6 +163,13 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   `Context` is built. Before 2.0.0 a context that failed to start looked identical in the inspector to
   one that started fine.
 - `Presenter<TView>.OnRefresh()` and `Presenter<TView>.Refresh()` — see *Presenters*.
+- `ContextBehaviour.PersistAcrossScenes` — `protected virtual bool`, `true` unless overridden: whether
+  `Awake` marks the GameObject `DontDestroyOnLoad`. In 0.6.1 that was unconditional, so a context that
+  belonged to one scene needed a workaround (audit CC-7). It is applied only to a root object, the only kind
+  Unity keeps across scene loads; on a child the behaviour logs a warning saying so instead of calling
+  `DontDestroyOnLoad`, which Unity would have ignored with a warning of its own.
+- `PresenterExtensions.CloseWith(presenter, lifetime)` closes a presenter when a lifetime ends, typically
+  its view's: `presenter.CloseWith(view.Lifetime)`. The binding is undone when either side ends first.
 - `IPresenterFactory` (`com.openugd.presenters`): how a presenter tree has its presenters built and
   injected, in two members — `Presenter Create(Type presenterType)` for code that knows a presenter only by
   its type, and `void Inject(Presenter presenter)`, which the tree calls once for every presenter it
@@ -191,16 +199,32 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
-  `com.openugd.presenters.tests` (71 tests over the presenter tree built with a hand-written
-  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, the guards, the deleted surface and the
-  presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
+  `com.openugd.presenters.tests` (76 tests over the presenter tree built with a hand-written
+  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, `CloseWith`, the guards, the deleted surface
+  and the presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
-  sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary;
-  its 7 tests over `ContextPresenterFactory` need no Unity runtime.
+  sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
+  12 tests need no Unity runtime (`ContextPresenterFactory`, and the shape of the Unity message methods),
+  and 11 marked `RequiresUnity` cover `ViewBehaviour`'s scope and `CloseWith`, a destroyed view skipping
+  `Refresh`, `PersistAcrossScenes` on a root and on a child, a boot cancelled by destruction, and overrides
+  that call `base`.
 
 ### Changed
 
+- **Breaking: the Unity messages of `ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` are
+  `protected virtual`** (audit CC-6, UH-9): `Awake`, `Update`, `FixedUpdate`, `LateUpdate`,
+  `OnApplicationFocus`, `OnApplicationPause`, `OnApplicationQuit` and `OnDestroy` on `ContextBehaviour`;
+  `Awake` and `OnDestroy` on `ViewBehaviour`; `Awake`, `Start`, `OnEnable`, `OnDisable` and `OnDestroy` on
+  `SignalMonoBehaviour`. They were private, so a subclass that declared, say, its own `Update` silently
+  replaced the base's — `OnUpdate` stopped firing, or the scope was never ended — because Unity finds the
+  method by name. Such a subclass now gets warning CS0114. Migration: declare the method
+  `protected override` and call `base` (`base.Awake()` first).
+- **Breaking: `ViewBehaviour.OnAwake` is removed.** It existed only because `Awake` was private. Migration:
+  override `Awake` and call `base.Awake()` first.
+- `ViewBehaviour.Lifetime` is public. It was `protected`, so nothing outside the view could bind to the
+  view's destruction, although the type's documentation said that was its purpose (audit CC-5). Reading it
+  before `Awake` throws `InvalidOperationException` (it threw `NullReferenceException`).
 - **Breaking: corelib is five assemblies.** The one `com.openugd.corelib` runtime assembly of 0.6.1 is
   split by concern, inside this one package. Each assembly is named as if it were its own package:
 

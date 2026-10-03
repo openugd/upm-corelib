@@ -129,6 +129,36 @@ GameObject, exposes `OnUpdate` / `OnLateUpdate` / `OnFixedUpdate` / `OnFocus` / 
 signals, implements `ICoroutineProvider`, and keeps the boot in `Startup` — an awaitable `Task` an
 integration test can await and a failure cannot vanish into.
 
+By default it keeps its GameObject across scene loads. A context that belongs to its scene says so:
+
+```csharp
+using System.Threading;
+using System.Threading.Tasks;
+using OpenUGD;
+using OpenUGD.Core;
+
+public class LevelContext : ContextBehaviour
+{
+    // Destroyed with the scene, and the context built under Lifetime with it.
+    protected override bool PersistAcrossScenes => false;
+
+    protected override Task<Context> CreateContextAsync(CancellationToken cancellationToken) =>
+        Context.CreateBuilder(Lifetime).BuildAsync(cancellationToken);
+
+    protected override void Update()
+    {
+        base.Update(); // fires OnUpdate; leave it out and OnUpdate stops
+        // per-frame work of your own
+    }
+}
+```
+
+`ContextBehaviour`, `ViewBehaviour` and `SignalMonoBehaviour` handle Unity's messages — `Awake`, `Update`,
+`OnDestroy` and the rest — as `protected virtual` methods. Override one and call `base`: the base method is
+what creates the scope, fires the signal or ends the scope. Declaring one without `override` hides it, and the
+compiler says so (warning CS0114). Unity keeps only root objects across scene loads, so on a child object
+`PersistAcrossScenes` changes nothing and `ContextBehaviour` logs a warning.
+
 ## Assemblies
 
 The package holds five runtime assemblies, one per concern, each named as if it were its own package:
@@ -162,7 +192,7 @@ This is the whole public surface of the package.
 | --- | --- | --- | --- |
 | `ContextBehaviour` | `com.openugd.corelib` | `OpenUGD.Core` | MonoBehaviour entry point: owns the `Lifetime`, builds the `Context`, exposes the Unity loop as signals, and surfaces the boot as an awaitable `Startup`. |
 | `ContextBehaviourEditor` | `com.openugd.corelib.editor` | `OpenUGD.Core.Editor` | Inspector for every `ContextBehaviour`: boot status, the failure message, and Rebuild in play mode. Editor only. |
-| `ViewBehaviour` | `com.openugd.corelib` | `OpenUGD.Presenters` | A MonoBehaviour whose `Lifetime` ends in `OnDestroy`, to tie a presenter's scope to its view. |
+| `ViewBehaviour` | `com.openugd.corelib` | `OpenUGD.Presenters` | A MonoBehaviour whose public `Lifetime` ends in `OnDestroy`; `presenter.CloseWith(view.Lifetime)` ties a presenter to it. |
 | `ICoroutineProvider`, `CoroutineProvider` | `com.openugd.corelib` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
 | `ISynchronizationContext`, `SynchronizationContextWrapper` | `com.openugd.corelib` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
 | `SignalMonoBehaviour` | `com.openugd.corelib` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
@@ -170,7 +200,7 @@ This is the whole public surface of the package.
 | `IPresenterFactory` | `com.openugd.presenters` | `OpenUGD.Presenters` | How a tree has its presenters built (`Create`) and injected (`Inject`), without knowing the container. |
 | `ContextPresenterFactory` | `com.openugd.corelib` | `OpenUGD.Presenters` | The `IPresenterFactory` over `OpenUGD.Context`. |
 | `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
-| `PresenterExtensions` | `com.openugd.presenters` | `OpenUGD.Presenters` | `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
+| `PresenterExtensions` | `com.openugd.presenters` | `OpenUGD.Presenters` | `CloseWith`, which closes a presenter when a lifetime ends; `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
 | `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | Maps message types to command types; each command is built by the `Context`. |
 | `CommandMapExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | `AddCommandMap()` on a `ServiceCollection`; `MapCommand()` and `Tell(message)` on a `Context`. |
 | `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | `com.openugd.logging` | `OpenUGD.Logging` | Tagged, flag-filtered logging with pluggable sinks. |
@@ -227,7 +257,7 @@ public static class ScoreScreen
     public static ScorePresenter Open(Lifetime lifetime, Context context, ScoreView view)
     {
         var root = new Presenter.Root(lifetime, new ContextPresenterFactory(context));
-        var score = root.AddPresenter(new ScorePresenter());
+        var score = root.AddPresenter(new ScorePresenter()).CloseWith(view.Lifetime);
         score.SetModel(42);
         score.SetView(view);
         return score;
@@ -237,7 +267,9 @@ public static class ScoreScreen
 
 `OnViewAdded` wires a view and `OnRefresh` renders it. `ViewLifetime` is the scope of the current view: it
 ends just before that view is detached or replaced, and when the presenter closes, so a listener registered
-on it never outlives its view and a re-attached view is wired exactly once.
+on it never outlives its view and a re-attached view is wired exactly once. `CloseWith(view.Lifetime)` goes
+the other way: a `ViewBehaviour`'s `Lifetime` ends when its GameObject is destroyed, and the presenter
+closes with it.
 
 Attach first, then set the model and the view: `SetView` throws before the presenter is attached, and does
 nothing once it has closed. `OnRefresh` runs only while the presenter is live — a view attached, the
