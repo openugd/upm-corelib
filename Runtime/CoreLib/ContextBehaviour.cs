@@ -117,9 +117,9 @@ namespace OpenUGD.Core
         protected virtual bool PersistAcrossScenes => true;
 
         /// <summary>
-        /// The scope this behaviour owns. Created in <c>Awake</c>, terminated in <c>OnDestroy</c>, and
-        /// replaced by <see cref="Rebuild"/>. Build the context under it so the context dies with the
-        /// GameObject.
+        /// The scope this behaviour owns. Created in <c>Awake</c>, nested in <see cref="PlaySession.Lifetime"/>,
+        /// terminated in <c>OnDestroy</c> or when the play session ends, and replaced by <see cref="Rebuild"/>.
+        /// Build the context under it so the context dies with the GameObject.
         /// </summary>
         /// <exception cref="InvalidOperationException">Read before <c>Awake</c> ran.</exception>
         public Lifetime Lifetime =>
@@ -155,8 +155,8 @@ namespace OpenUGD.Core
         /// Builds the context. Called once from <c>Awake</c> and again on every <see cref="Rebuild"/>.
         /// </summary>
         /// <param name="cancellationToken">
-        /// Cancelled when <see cref="Lifetime"/> terminates — that is, when the GameObject is destroyed or
-        /// <see cref="Rebuild"/> is called. Pass it to <c>BuildAsync</c>.
+        /// Cancelled when <see cref="Lifetime"/> terminates — that is, when the GameObject is destroyed,
+        /// <see cref="Rebuild"/> is called or the play session ends. Pass it to <c>BuildAsync</c>.
         /// </param>
         /// <returns>
         /// The built context. Must not be <c>null</c>: a boot that cannot produce a context must throw, so
