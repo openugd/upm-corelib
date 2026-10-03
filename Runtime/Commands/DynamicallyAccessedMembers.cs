@@ -1,9 +1,10 @@
 // A private copy of the trimming annotation that .NET 5 added to its class libraries, the same one
 // com.openugd.context carries. Unity's class libraries (netstandard 2.1 and unityaot) do not have it, but Unity's
 // linker is built on the .NET linker and honours it, matching the attribute by its full name in any assembly. It
-// goes on every parameter through which a command type reaches Context.Instantiate — RegisterCommand(Type), the
-// generic RegisterCommand<TCommand>() and Map<TMessage, TCommand>(), and the field a registration keeps the
-// type in — so the linker keeps the constructors of exactly the command types that appear at those call sites.
+// goes on every parameter through which a command type reaches the constructor lookup in CommandActivator —
+// RegisterCommand(Type), the generic RegisterCommand<TCommand>() and Map<TMessage, TCommand>(), and
+// CommandActivator.Create — so the linker keeps the constructors of exactly the command types that appear at those
+// call sites.
 //
 // Internal: other assemblies cannot see it, so it never collides with a copy of their own. Left out when the
 // class libraries already have the real one.
@@ -55,7 +56,7 @@ namespace OpenUGD.Commands
 
     internal static class Trimming
     {
-        /// What every entry point that hands a command type to Context.Instantiate asks the linker to keep: the
+        /// What every entry point that hands a command type to the constructor lookup asks the linker to keep: the
         /// constructors, public and not — the members Context.Instantiate's own parameter is annotated with.
         internal const DynamicallyAccessedMemberTypes Constructors =
             DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors;

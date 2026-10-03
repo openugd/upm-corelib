@@ -7,9 +7,8 @@ namespace OpenUGD.Commands
     /// Routes messages to the commands mapped for their type, and to any listener that asked for all of them.
     /// </summary>
     /// <remarks>
-    /// A child scope is now a child <see cref="Context"/>, so the hand-rolled child <c>Injector</c> that
-    /// 0.6.1 built here — and the teardown action that walked it unregistering every binding one at a time —
-    /// are both gone.
+    /// <b>Not thread-safe.</b> Map, subscribe and tell from one thread — normally Unity's main thread. A command or
+    /// a listener may map, subscribe, unsubscribe or tell while it is being told.
     /// </remarks>
     public class CommandMap : ITellMessage, IMapCommand
     {
@@ -21,8 +20,9 @@ namespace OpenUGD.Commands
         private ITellMessage[] _tellMessages = Array.Empty<ITellMessage>();
 
         /// <summary>Creates a command map bound to a scope and a context.</summary>
-        /// <param name="lifetime">The scope every mapper and registration is nested under.</param>
-        /// <param name="context">The context commands are instantiated from.</param>
+        /// <param name="lifetime">The scope every mapper and registration is nested under. When it terminates, the
+        /// map forgets its mappers and listeners.</param>
+        /// <param name="context">The context commands registered by type are built from.</param>
         /// <exception cref="ArgumentNullException">Either argument is null.</exception>
         public CommandMap(Lifetime lifetime, Context context)
         {
@@ -42,6 +42,7 @@ namespace OpenUGD.Commands
         /// Returns the mapper for <typeparamref name="TMessage"/>, creating it on first use.
         /// </summary>
         /// <typeparam name="TMessage">The message type to map commands against.</typeparam>
+        /// <returns>The mapper for <typeparamref name="TMessage"/>; the same instance on every call.</returns>
         /// <exception cref="InvalidOperationException">This map's scope has already terminated.</exception>
         public ICommandMapper Map<TMessage>() where TMessage : IMessage
         {
@@ -62,62 +63,56 @@ namespace OpenUGD.Commands
         }
 
         /// <summary>
-        /// Dispatches <paramref name="message"/> to the mapper for its exact runtime type, then to every
-        /// subscriber.
+        /// Dispatches <paramref name="message"/> to the commands mapped for its exact runtime type, in registration
+        /// order, then to every listener, in subscription order.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// <b>Exact type.</b> The mapper is looked up by <c>message.GetType()</c>: a mapping for a base class or an
-        /// interface the message implements does not run, and neither does one for a type derived from it. Map
-        /// each concrete message type you send.
+        /// interface the message implements does not run, and neither does one for a type derived from it. A
+        /// message nothing is mapped to and nobody listens to is dropped, which is not an error.
+        /// </para>
+        /// <para>
+        /// <b>Failures.</b> Every command and every listener runs. The failures of both are then reported as one
+        /// flat list: a single failure is rethrown as itself, two or more as one <see cref="AggregateException"/>
+        /// whose inner exceptions are the failures themselves, commands' first.
+        /// </para>
         /// </remarks>
         /// <param name="message">The message to dispatch.</param>
         /// <exception cref="ArgumentNullException"><paramref name="message"/> is null.</exception>
-        /// <exception cref="AggregateException">
-        /// One or more commands or subscribers threw. All of them still ran.
-        /// </exception>
+        /// <exception cref="Exception">Exactly one command or listener failed: that exception, rethrown with its
+        /// original stack trace.</exception>
+        /// <exception cref="AggregateException">Two or more failed.</exception>
         public void Tell(object message)
         {
             if (message == null) throw new ArgumentNullException(nameof(message));
 
+            Exception failure = null;
             List<Exception> failures = null;
 
             CommandMapper mapper;
             if (_map.TryGetValue(message.GetType(), out mapper))
             {
-                try
-                {
-                    mapper.Tell(message);
-                }
-                catch (Exception exception)
-                {
-                    (failures ?? (failures = new List<Exception>())).Add(exception);
-                }
+                mapper.Dispatch(message, ref failure, ref failures);
             }
 
             // Read once: the array is replaced, never changed, so a listener that unsubscribes while being told
-            // does not disturb the walk, and nothing is copied per Tell. 0.6.1 borrowed a pooled list here and
-            // leaked it whenever a listener threw — the same defect measured and fixed in Signal 2.0.0.
+            // does not disturb the walk, and nothing is copied per Tell.
             var listeners = _tellMessages;
-            if (listeners.Length != 0)
+            for (var i = 0; i < listeners.Length; i++)
             {
-                for (var i = 0; i < listeners.Length; i++)
+                try
                 {
-                    try
-                    {
-                        listeners[i].Tell(message);
-                    }
-                    catch (Exception exception)
-                    {
-                        (failures ?? (failures = new List<Exception>())).Add(exception);
-                    }
+                    listeners[i].Tell(message);
+                }
+                catch (Exception exception)
+                {
+                    Failures.Add(exception, ref failure, ref failures);
                 }
             }
 
-            if (failures == null) return;
-
-            throw new AggregateException(
-                failures.Count + " handler(s) failed while telling '" + message.GetType() +
-                "'. Every handler still ran; call Flatten() for the leaves.", failures);
+            Failures.ThrowIfAny(failure, failures,
+                " handlers failed while telling '" + message.GetType() + "'. Every handler still ran.");
         }
 
         /// <summary>
@@ -125,7 +120,8 @@ namespace OpenUGD.Commands
         /// </summary>
         /// <param name="lifetime">The scope the subscription is bound to. If it has already
         /// terminated, nothing is subscribed.</param>
-        /// <param name="tellMessage">The listener.</param>
+        /// <param name="tellMessage">The listener. Subscribing the same listener twice makes it receive every
+        /// message twice.</param>
         /// <exception cref="ArgumentNullException">Either argument is null.</exception>
         public void Subscribe(Lifetime lifetime, ITellMessage tellMessage)
         {

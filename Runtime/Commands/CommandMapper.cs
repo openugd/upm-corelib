@@ -9,28 +9,25 @@ namespace OpenUGD.Commands
     /// </summary>
     /// <remarks>
     /// <para>
-    /// A command registered by type is constructed fresh per message by
-    /// <see cref="Context.Instantiate(Type, object[])"/>, which offers the message, the registration's
-    /// <see cref="Lifetime.Definition"/> and the execution's <see cref="Lifetime"/> as constructor arguments and
-    /// resolves every other parameter from the context; that this can succeed is checked at registration. A
-    /// command registered with a factory is built by the factory, with no reflection. Either way each execution
-    /// gets its own <see cref="Lifetime"/>, nested in the registration's and terminated when the command
-    /// returns.
+    /// <b>Building a command.</b> A command registered by type is checked and planned at registration: the
+    /// constructor is chosen, and each argument's source decided, once. Every message then builds a fresh command
+    /// with that constructor, offering the message, the registration's <see cref="Lifetime.Definition"/> and the
+    /// execution's <see cref="Lifetime"/>, resolving the other parameters from the context, and filling
+    /// <c>[Inject]</c> members if the type has any. A command registered with a factory is built by the factory.
+    /// Either way each execution gets its own <see cref="Lifetime"/>, nested in the registration's and terminated
+    /// when the command returns.
     /// </para>
     /// <para>
-    /// This is what replaced the 0.6.1 sequence "register the message into the injector, inject, execute,
-    /// unregister": a throwing <see cref="ICommand.Execute"/> skipped both unregister calls, so the message
-    /// stayed registered forever and the remaining commands never ran. There is now no container mutation to
-    /// fail to undo, and a throwing command no longer stops the others: every failure is collected and
-    /// surfaced together as an <see cref="AggregateException"/>, even when only one command failed. That last
-    /// part differs from <see cref="Lifetime"/> 2.0.0 and <c>Signal</c> 2.0.0, which rethrow a single failure
-    /// as itself.
+    /// <b>Failures.</b> A command that throws, or fails to be built, does not stop the others. Once every command
+    /// has run, a single failure is rethrown as itself, with its original stack trace; two or more are thrown as
+    /// one <see cref="AggregateException"/>, in the order they happened.
     /// </para>
     /// <para>
     /// <b>Not thread-safe.</b> Register, remove and tell from one thread — normally Unity's main thread. A
     /// command may register, remove or tell from inside <see cref="ICommand.Execute"/>: the list of commands is
     /// replaced, never changed in place, so a dispatch in progress keeps walking the list it started with, and
-    /// skips a command removed in the meantime.
+    /// skips a command removed in the meantime. A one-time registration runs once even when its command tells its
+    /// own message again.
     /// </para>
     /// </remarks>
     public class CommandMapper : ICommandMapper, ICommandMapperRemove, ITellMessage
@@ -45,7 +42,7 @@ namespace OpenUGD.Commands
         /// <summary>Creates a mapper for one message type.</summary>
         /// <param name="lifetime">The scope every registration is nested under.</param>
         /// <param name="messageType">The message type this mapper dispatches.</param>
-        /// <param name="context">The context commands are instantiated from.</param>
+        /// <param name="context">The context commands registered by type are built from.</param>
         /// <exception cref="ArgumentNullException">Any argument is null.</exception>
         public CommandMapper(Lifetime lifetime, Type messageType, Context context)
         {
@@ -67,8 +64,6 @@ namespace OpenUGD.Commands
         {
             if (commandType == null) throw new ArgumentNullException(nameof(commandType));
 
-            // A struct passes the other tests, and Context.Instantiate refuses every value type, so it is refused
-            // here rather than on every Tell.
             if (!typeof(ICommand).IsAssignableFrom(commandType) || commandType.IsAbstract ||
                 commandType.IsInterface || commandType.IsValueType || commandType.ContainsGenericParameters)
             {
@@ -80,17 +75,19 @@ namespace OpenUGD.Commands
 
             ThrowIfEnded(commandType.Name);
 
-            var reason = CommandConstructors.DescribeUnsatisfiable(_context, commandType, _messageType);
-            if (reason != null)
+            string reason;
+            var activator = CommandActivator.Create(_context, commandType, _messageType, out reason);
+            if (activator == null)
             {
                 throw new ArgumentException(
                     "'" + commandType + "' cannot be registered against '" + _messageType + "': " + reason +
                     " A command's constructor may take the message, a Lifetime.Definition (the registration), a " +
-                    "Lifetime (the execution) and any service registered in the context.",
+                    "Lifetime (the execution) and any service registered in the context; its [Inject] members, " +
+                    "services only.",
                     nameof(commandType));
             }
 
-            return Add(new Entry(commandType, null, oneTime, _lifetime.DefineNested(commandType.Name)));
+            return Add(new Entry(commandType, activator, null, oneTime, _lifetime.DefineNested(commandType.Name)));
         }
 
         /// <inheritdoc />
@@ -100,7 +97,7 @@ namespace OpenUGD.Commands
 
             ThrowIfEnded("a command factory");
 
-            return Add(new Entry(null, factory, oneTime, _lifetime.DefineNested(_messageType.Name)));
+            return Add(new Entry(null, null, factory, oneTime, _lifetime.DefineNested(_messageType.Name)));
         }
 
         /// <inheritdoc />
@@ -126,10 +123,11 @@ namespace OpenUGD.Commands
         /// <exception cref="ArgumentException">
         /// <paramref name="message"/> is not an instance of <see cref="MessageType"/>.
         /// </exception>
-        /// <exception cref="AggregateException">
-        /// One or more commands threw, or failed to be built, or the clean-up registered on an execution's
-        /// lifetime threw. Every command still ran; the failures are collected here.
+        /// <exception cref="Exception">
+        /// Exactly one command threw, failed to be built, or had clean-up on its execution's lifetime throw: that
+        /// exception, rethrown with its original stack trace. Every other command still ran.
         /// </exception>
+        /// <exception cref="AggregateException">Two or more did. Every command still ran.</exception>
         public void Tell(object message)
         {
             if (message == null) throw new ArgumentNullException(nameof(message));
@@ -141,17 +139,36 @@ namespace OpenUGD.Commands
                     nameof(message));
             }
 
+            Exception failure = null;
+            List<Exception> failures = null;
+            Dispatch(message, ref failure, ref failures);
+
+            Failures.ThrowIfAny(failure, failures,
+                " commands failed while handling '" + _messageType + "'. Every registered command still ran.");
+        }
+
+        // Runs the commands and adds each failure to the caller's collection instead of throwing, so CommandMap can
+        // report them together with its listeners' as one flat list.
+        internal void Dispatch(object message, ref Exception failure, ref List<Exception> failures)
+        {
             // The array is never written to once published, so this is the snapshot: no copy per Tell.
             var commands = _commands;
-            List<Exception> failures = null;
 
             for (var i = 0; i < commands.Length; i++)
             {
                 var entry = commands[i];
 
-                // Unregistered while this dispatch was in flight: do not run it, exactly as Signal
-                // 2.0.0 does not invoke a handler unsubscribed mid-dispatch.
+                // Unregistered while this dispatch was in flight: do not run it, exactly as Signal does not invoke
+                // a handler unsubscribed mid-dispatch.
                 if (entry.Definition.IsTerminated) continue;
+
+                // Claimed before it runs, so a one-time command that tells its own message from Execute - or
+                // anything else that dispatches again before the registration ends below - does not run it twice.
+                if (entry.OneTime)
+                {
+                    if (entry.Claimed) continue;
+                    entry.Claimed = true;
+                }
 
                 var execution = entry.Definition.Lifetime.DefineNested(entry.Name);
                 try
@@ -160,7 +177,7 @@ namespace OpenUGD.Commands
                 }
                 catch (Exception exception)
                 {
-                    (failures ?? (failures = new List<Exception>())).Add(exception);
+                    Failures.Add(exception, ref failure, ref failures);
                 }
 
                 try
@@ -169,7 +186,7 @@ namespace OpenUGD.Commands
                 }
                 catch (Exception exception)
                 {
-                    (failures ?? (failures = new List<Exception>())).Add(exception);
+                    Failures.Add(exception, ref failure, ref failures);
                 }
 
                 if (!entry.OneTime) continue;
@@ -180,24 +197,14 @@ namespace OpenUGD.Commands
                 }
                 catch (Exception exception)
                 {
-                    (failures ?? (failures = new List<Exception>())).Add(exception);
+                    Failures.Add(exception, ref failure, ref failures);
                 }
             }
-
-            if (failures == null) return;
-
-            throw new AggregateException(
-                failures.Count + " command(s) failed while handling '" + _messageType +
-                "'. Every registered command still ran; call Flatten() for the leaves.", failures);
         }
 
         private ICommand Build(Entry entry, object message, Lifetime execution)
         {
-            if (entry.Factory == null)
-            {
-                return (ICommand)_context.Instantiate(entry.CommandType,
-                    new object[] { message, entry.Definition, execution });
-            }
+            if (entry.Activator != null) return entry.Activator.Build(message, entry.Definition, execution);
 
             return entry.Factory(message, execution) ?? throw new InvalidOperationException(
                 "The command factory registered against '" + _messageType + "' returned null. It must return the " +
@@ -241,21 +248,25 @@ namespace OpenUGD.Commands
 
         private sealed class Entry
         {
-            // Annotated like the parameter it comes from and the Context.Instantiate parameter it goes to, so
-            // the linker follows the command type through the field instead of losing it here (IL2077). Null
-            // for a factory registration.
-            [DynamicallyAccessedMembers(Trimming.Constructors)]
+            // Null for a factory registration; used only to find registrations to remove.
             internal readonly Type CommandType;
 
+            // Exactly one of the two is set.
+            internal readonly CommandActivator Activator;
             internal readonly Func<object, Lifetime, ICommand> Factory;
+
             internal readonly Lifetime.Definition Definition;
             internal readonly bool OneTime;
             internal readonly string Name;
 
-            internal Entry([DynamicallyAccessedMembers(Trimming.Constructors)] Type commandType,
-                Func<object, Lifetime, ICommand> factory, bool oneTime, Lifetime.Definition definition)
+            // A one-time registration that has started its one run.
+            internal bool Claimed;
+
+            internal Entry(Type commandType, CommandActivator activator, Func<object, Lifetime, ICommand> factory,
+                bool oneTime, Lifetime.Definition definition)
             {
                 CommandType = commandType;
+                Activator = activator;
                 Factory = factory;
                 OneTime = oneTime;
                 Definition = definition;

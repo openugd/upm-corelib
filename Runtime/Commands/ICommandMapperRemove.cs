@@ -6,9 +6,8 @@ namespace OpenUGD.Commands
     /// Removes command registrations from an <see cref="ICommandMapper"/> by command type.
     /// </summary>
     /// <remarks>
-    /// Implemented by <see cref="CommandMapper"/>. Until 2.0.0 this interface was declared but implemented by
-    /// nothing, because registrations were keyed by an opaque factory delegate and there was no type to
-    /// remove by.
+    /// Implemented by <see cref="CommandMapper"/>. Factory registrations have no command type and are not
+    /// removed by it: terminate the <see cref="Lifetime.Definition"/> their registration returned.
     /// </remarks>
     public interface ICommandMapperRemove
     {

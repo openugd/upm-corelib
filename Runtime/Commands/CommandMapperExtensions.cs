@@ -12,11 +12,12 @@ namespace OpenUGD.Commands
         /// <summary>Registers <typeparamref name="TCommand"/> against this mapper's message.</summary>
         /// <typeparam name="TCommand">A concrete command class.</typeparam>
         /// <param name="mapper">The mapper to register with.</param>
-        /// <param name="oneTime">Terminate the registration after it has run once.</param>
+        /// <param name="oneTime">Run once, then terminate the registration.</param>
         /// <returns>The registration; terminate it to unregister.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="mapper"/> is null.</exception>
-        /// <exception cref="ArgumentException">No constructor of <typeparamref name="TCommand"/> can be satisfied;
-        /// see <see cref="ICommandMapper.RegisterCommand(Type, bool)"/>.</exception>
+        /// <exception cref="ArgumentException"><typeparamref name="TCommand"/> cannot be built here — no
+        /// satisfiable constructor, or an <c>[Inject]</c> member that cannot be filled; see
+        /// <see cref="ICommandMapper.RegisterCommand(Type, bool)"/>.</exception>
         public static Lifetime.Definition RegisterCommand<[DynamicallyAccessedMembers(Trimming.Constructors)] TCommand>(
             this ICommandMapper mapper, bool oneTime = false)
             where TCommand : ICommand
@@ -32,11 +33,13 @@ namespace OpenUGD.Commands
         /// derived from it does not reach this command.</typeparam>
         /// <typeparam name="TCommand">The command to run when it is told.</typeparam>
         /// <param name="map">The command map.</param>
-        /// <param name="oneTime">Terminate the registration after it has run once.</param>
+        /// <param name="oneTime">Run once, then terminate the registration.</param>
         /// <returns>The registration; terminate it to unregister.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="map"/> is null.</exception>
-        /// <exception cref="ArgumentException">No constructor of <typeparamref name="TCommand"/> can be satisfied;
-        /// see <see cref="ICommandMapper.RegisterCommand(Type, bool)"/>.</exception>
+        /// <exception cref="InvalidOperationException">The map's scope has already terminated.</exception>
+        /// <exception cref="ArgumentException"><typeparamref name="TCommand"/> cannot be built here — no
+        /// satisfiable constructor, or an <c>[Inject]</c> member that cannot be filled; see
+        /// <see cref="ICommandMapper.RegisterCommand(Type, bool)"/>.</exception>
         public static Lifetime.Definition Map<TMessage, [DynamicallyAccessedMembers(Trimming.Constructors)] TCommand>(
             this IMapCommand map, bool oneTime = false)
             where TMessage : IMessage
@@ -59,10 +62,11 @@ namespace OpenUGD.Commands
         /// <param name="map">The command map.</param>
         /// <param name="factory">Builds the command from the message and the execution's
         /// <see cref="Lifetime"/>; see <see cref="ICommandMapper.RegisterCommand(Func{object, Lifetime, ICommand}, bool)"/>.</param>
-        /// <param name="oneTime">Terminate the registration after it has run once.</param>
+        /// <param name="oneTime">Run once, then terminate the registration.</param>
         /// <returns>The registration; terminate it to unregister.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="map"/> or <paramref name="factory"/> is
         /// null.</exception>
+        /// <exception cref="InvalidOperationException">The map's scope has already terminated.</exception>
         public static Lifetime.Definition Map<TMessage>(this IMapCommand map,
             Func<TMessage, Lifetime, ICommand> factory, bool oneTime = false)
             where TMessage : IMessage

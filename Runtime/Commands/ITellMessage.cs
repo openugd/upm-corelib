@@ -38,8 +38,8 @@ namespace OpenUGD.Commands
         /// type.
         /// </para>
         /// <para>
-        /// <b>One failing handler does not stop the others.</b> Every command and every subscriber runs; the
-        /// failures are collected and rethrown together at the end.
+        /// <b>One failing handler does not stop the others.</b> Every command and every subscriber runs; then a
+        /// single failure is rethrown as itself and two or more are thrown together.
         /// </para>
         /// </remarks>
         /// <param name="message">The message to raise. Never <c>null</c>.</param>
@@ -51,10 +51,10 @@ namespace OpenUGD.Commands
         /// <see cref="CommandMapper"/> only: <paramref name="message"/> is not an instance of the message
         /// type that mapper dispatches.
         /// </exception>
-        /// <exception cref="System.AggregateException">
-        /// One or more handlers threw. All of them still ran; call
-        /// <see cref="System.AggregateException.Flatten"/> for the leaves.
-        /// </exception>
+        /// <exception cref="System.Exception">Exactly one handler threw: that exception, rethrown with its original
+        /// stack trace.</exception>
+        /// <exception cref="System.AggregateException">Two or more handlers threw. All of them still ran, and the
+        /// inner exceptions are the failures themselves.</exception>
         void Tell(object message);
     }
 }

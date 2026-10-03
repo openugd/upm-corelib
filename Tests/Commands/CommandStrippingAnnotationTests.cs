@@ -8,11 +8,10 @@ namespace OpenUGD.Commands.Tests
 {
     /// <summary>
     /// The contract with Unity's linker, checked by reflection so that level 1 catches a regression without
-    /// running the linker. A command is built by <c>Context.Instantiate</c>, by reflection, from a type the
-    /// mapper stored at registration; nothing else in a player names its constructor. Every entry point a
-    /// command type passes through therefore carries <c>[DynamicallyAccessedMembers]</c> for its
-    /// constructors, or a stripped player loses them and every <c>Tell</c> fails. The linker matches the
-    /// attribute by name, so these tests do too.
+    /// running the linker. A command registered by type is built through a constructor the mapper looks up by
+    /// reflection at registration; nothing else in a player names it. Every entry point a command type passes
+    /// through therefore carries <c>[DynamicallyAccessedMembers]</c> for its constructors, or a stripped player
+    /// loses them and registration fails. The linker matches the attribute by name, so these tests do too.
     /// </summary>
     [TestFixture]
     public class CommandStrippingAnnotationTests
@@ -54,13 +53,14 @@ namespace OpenUGD.Commands.Tests
         }
 
         [Test]
-        public void TheStoredCommandType_KeepsItsAnnotation_SoTheLinkerCanFollowItToInstantiate()
+        public void TheActivatorsConstructorLookup_KeepsTheAnnotation_SoTheLinkerCanFollowTheTypeToIt()
         {
-            var field = typeof(CommandMapper).GetNestedTypes(BindingFlags.NonPublic)
-                .SelectMany(t => t.GetFields(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public))
-                .Single(f => f.FieldType == typeof(Type));
+            // Where the command type stops flowing: CommandActivator.Create reads its constructors.
+            var activator = typeof(CommandMapper).Assembly.GetType("OpenUGD.Commands.CommandActivator", true);
+            var create = activator.GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic);
+            var parameter = create.GetParameters().Single(p => p.Name == "commandType");
 
-            AssertKeepsConstructors(field.GetCustomAttributesData(), field.DeclaringType + "." + field.Name);
+            AssertKeepsConstructors(parameter.GetCustomAttributesData(), create + ", " + parameter.Name);
         }
 
         private static void AssertKeepsConstructors(IList<CustomAttributeData> data, string where)

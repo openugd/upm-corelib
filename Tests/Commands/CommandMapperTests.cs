@@ -1,15 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace OpenUGD.Commands.Tests
 {
-    // CommandMapper builds each command with Context.Instantiate - offering the message, the registration and the
-    // execution's lifetime as constructor arguments - or with a registered factory, and aggregates failures. A
-    // registration is checked when it is made and undone by terminating what it returns (CC-22, UH-16).
+    // CommandMapper builds each command from a plan made at registration - offering the message, the registration and
+    // the execution's lifetime as constructor arguments - or with a registered factory, and reports failures as the
+    // family does: one as itself, several as one aggregate. A registration is checked when it is made and undone by
+    // terminating what it returns (CC-22, UH-16).
     [TestFixture]
     public class CommandMapperTests
     {
@@ -54,15 +56,14 @@ namespace OpenUGD.Commands.Tests
         }
 
         [Test]
-        public void CommandMapper_RunsEveryCommandEvenWhenOneThrows_AndAggregates()
+        public void CommandMapper_RunsEveryCommandEvenWhenOneThrows()
         {
             var map = _context.MapCommand();
             map.Map<Ping, ThrowingCommand>();
             map.Map<Ping, RecordCommand>();
 
-            var failure = Assert.Throws<AggregateException>(() => _context.Tell(new Ping("one")));
+            Assert.Throws<InvalidOperationException>(() => _context.Tell(new Ping("one")));
 
-            Assert.AreEqual(1, failure.Flatten().InnerExceptions.Count);
             CollectionAssert.AreEqual(new[] { "one" }, _context.Resolve<Ledger>().Entries,
                 "a throwing command must not stop the ones registered after it");
         }
@@ -181,7 +182,7 @@ namespace OpenUGD.Commands.Tests
         {
             _context.MapCommand().Map<Ping, ThrowingLifetimeProbeCommand>();
 
-            Assert.Throws<AggregateException>(() => _context.Tell(new Ping("boom")));
+            Assert.Throws<InvalidOperationException>(() => _context.Tell(new Ping("boom")));
 
             Assert.IsTrue(_context.Resolve<Ledger>().Lifetimes.Single().IsTerminated);
         }
@@ -212,7 +213,7 @@ namespace OpenUGD.Commands.Tests
             _context.Tell(new Ping("built by a factory"));
 
             CollectionAssert.AreEqual(new[] { "built by a factory" }, ledger.Entries,
-                "a command with no public constructor, which Context.Instantiate could not build");
+                "a command with no public constructor, which a type registration could not build");
             Assert.IsTrue(execution.IsTerminated);
         }
 
@@ -223,9 +224,9 @@ namespace OpenUGD.Commands.Tests
             map.Map<Ping>((message, lifetime) => null);
             map.Map<Ping, RecordCommand>();
 
-            var thrown = Assert.Throws<AggregateException>(() => _context.Tell(new Ping("one")));
+            var thrown = Assert.Throws<InvalidOperationException>(() => _context.Tell(new Ping("one")));
 
-            Assert.IsInstanceOf<InvalidOperationException>(thrown.Flatten().InnerExceptions.Single());
+            StringAssert.Contains("returned null", thrown.Message);
             CollectionAssert.AreEqual(new[] { "one" }, _context.Resolve<Ledger>().Entries);
         }
 
@@ -287,6 +288,226 @@ namespace OpenUGD.Commands.Tests
             _context.Tell(new Ping("removed"));
 
             CollectionAssert.IsEmpty(_context.Resolve<Ledger>().Entries);
+        }
+
+        // ------------------------------------------------------------------ one-time registrations (phase E)
+
+        // A one-time command that told its own message from Execute ran twice: the registration was terminated only
+        // after Execute returned, so the nested dispatch still found it live.
+        [Test]
+        public void OneTime_ACommandThatTellsItsOwnMessage_RunsOnce()
+        {
+            _context.MapCommand().Map<Ping, RetellCommand>(oneTime: true);
+
+            _context.Tell(new Ping("first"));
+            _context.Tell(new Ping("later"));
+
+            CollectionAssert.AreEqual(new[] { "first" }, _context.Resolve<Ledger>().Entries);
+        }
+
+        [Test]
+        public void OneTime_AFactoryCommandThatTellsItsOwnMessage_RunsOnce()
+        {
+            var ledger = _context.Resolve<Ledger>();
+            _context.MapCommand().Map<Ping>((message, lifetime) => new RetellCommand(message, ledger, _context),
+                oneTime: true);
+
+            _context.Tell(new Ping("first"));
+
+            CollectionAssert.AreEqual(new[] { "first" }, ledger.Entries);
+        }
+
+        [Test]
+        public void OneTime_ANestedDispatch_StillRunsTheOtherRegistrations()
+        {
+            var map = _context.MapCommand();
+            map.Map<Ping, RetellCommand>(oneTime: true);
+            map.Map<Ping, RecordCommand>();
+
+            _context.Tell(new Ping("first"));
+
+            CollectionAssert.AreEqual(new[] { "first", "retold", "first" }, _context.Resolve<Ledger>().Entries,
+                "the nested Tell runs the permanent registration for the retold message, then the outer one resumes");
+        }
+
+        // ------------------------------------------------------------------ failures: the family policy (phase E)
+
+        // Every failure used to arrive in an AggregateException, a single one included, and CommandMap wrapped the
+        // mapper's aggregate in a second one.
+        [Test]
+        public void Tell_OneFailure_IsRethrownAsItself_WithTheStackTraceOfWhereItWasThrown()
+        {
+            _context.MapCommand().Map<Ping, ThrowingCommand>();
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => _context.Tell(new Ping("one")));
+
+            StringAssert.Contains(nameof(ThrowingCommand), thrown.StackTrace);
+        }
+
+        [Test]
+        public void Tell_TwoFailures_AreOneAggregate_OfTheFailuresThemselves()
+        {
+            var map = _context.MapCommand();
+            map.Map<Ping, ThrowingCommand>();
+            map.Map<Ping, ThrowingArgumentCommand>();
+
+            var thrown = Assert.Throws<AggregateException>(() => _context.Tell(new Ping("one")));
+
+            Assert.AreEqual(2, thrown.InnerExceptions.Count);
+            Assert.IsInstanceOf<InvalidOperationException>(thrown.InnerExceptions[0]);
+            Assert.IsInstanceOf<ArgumentException>(thrown.InnerExceptions[1]);
+        }
+
+        [Test]
+        public void CommandMapper_TellDirectly_FollowsTheSamePolicy()
+        {
+            var mapper = new CommandMapper(_definition.Lifetime, typeof(Ping), _context);
+            mapper.RegisterCommand<ThrowingCommand>();
+
+            Assert.Throws<InvalidOperationException>(() => mapper.Tell(new Ping("one")));
+
+            mapper.RegisterCommand<ThrowingArgumentCommand>();
+            Assert.AreEqual(2, Assert.Throws<AggregateException>(() => mapper.Tell(new Ping("two"))).InnerExceptions.Count);
+        }
+
+        [Test]
+        public void CommandMap_FailingCommandsAndAListener_ThrowOneFlatAggregate_CommandsFirst()
+        {
+            var map = (CommandMap)_context.MapCommand();
+            map.Map<Ping, ThrowingCommand>();
+            map.Map<Ping, ThrowingArgumentCommand>();
+            map.Subscribe(_definition.Lifetime, new ThrowingListener());
+
+            var thrown = Assert.Throws<AggregateException>(() => map.Tell(new Ping("one")));
+
+            Assert.AreEqual(3, thrown.InnerExceptions.Count, "the mapper's failures are not nested in an aggregate of their own");
+            CollectionAssert.AreEqual(
+                new[] { typeof(InvalidOperationException), typeof(ArgumentException), typeof(NotSupportedException) },
+                thrown.InnerExceptions.Select(e => e.GetType()).ToArray());
+        }
+
+        [Test]
+        public void CommandMap_OneFailingListener_IsRethrownAsItself_AndTheCommandsStillRan()
+        {
+            var map = (CommandMap)_context.MapCommand();
+            map.Map<Ping, RecordCommand>();
+            map.Subscribe(_definition.Lifetime, new ThrowingListener());
+
+            Assert.Throws<NotSupportedException>(() => map.Tell(new Ping("one")));
+
+            CollectionAssert.AreEqual(new[] { "one" }, _context.Resolve<Ledger>().Entries);
+        }
+
+        [Test]
+        public void Tell_AConstructorThatThrows_FailsWithThatException_AsAFactoryWould()
+        {
+            _context.MapCommand().Map<Ping, ThrowingConstructorCommand>();
+
+            var thrown = Assert.Throws<FormatException>(() => _context.Tell(new Ping("one")));
+
+            StringAssert.Contains(nameof(ThrowingConstructorCommand), thrown.StackTrace,
+                "the stack trace is the constructor's, not the activator's rethrow");
+        }
+
+        // ------------------------------------------------------------------ no reflection per Tell (UH-16, phase E)
+
+        // A type registration went through Context.Instantiate on every Tell, which inspects the type each time.
+        // The plan is now made at registration: a Tell does not touch the command's Type at all.
+        [Test]
+        public void Tell_ATypeRegisteredCommand_DoesNotInspectItsTypeAgain()
+        {
+            var counting = new CountingType(typeof(RecordCommand));
+            _context.MapCommand().Map<Ping>().RegisterCommand(counting);
+            Assert.Greater(counting.Reads, 0, "the probe must see the registration's own inspection");
+
+            counting.Reads = 0;
+            _context.Tell(new Ping("one"));
+            _context.Tell(new Ping("two"));
+            _context.Tell(new Ping("three"));
+
+            Assert.AreEqual(0, counting.Reads);
+            CollectionAssert.AreEqual(new[] { "one", "two", "three" }, _context.Resolve<Ledger>().Entries);
+        }
+
+        [Test]
+        public void Tell_AfterTheContextIsDisposed_BuildsNothing_AsInstantiateWould()
+        {
+            // A map that outlives its context: the registrations live on, the context does not.
+            var outer = Lifetime.Eternal.DefineNested();
+            try
+            {
+                var map = new CommandMap(outer.Lifetime, _context);
+                map.Map<Ping>().RegisterCommand(typeof(StatelessCommand));
+                StatelessCommand.Runs = 0;
+
+                _context.Dispose();
+
+                Assert.Throws<ObjectDisposedException>(() => map.Tell(new Ping("late")));
+                Assert.AreEqual(0, StatelessCommand.Runs);
+            }
+            finally
+            {
+                outer.Terminate();
+            }
+        }
+
+        [Test]
+        public void Register_TwoEquallyWideSatisfiableConstructors_ThrowsThen_AsInstantiateWouldOnTell()
+        {
+            var thrown = Assert.Throws<ArgumentException>(() => _context.MapCommand().Map<Ping, AmbiguousCommand>());
+
+            StringAssert.Contains("ambiguous", thrown.Message);
+        }
+
+        // ------------------------------------------------------------------ [Inject] members (phase E)
+
+        // [Inject] members were filled, and so first checked, only when the command was built on Tell.
+        [Test]
+        public void Register_AnUnsatisfiableInjectMember_ThrowsThen_NamingIt()
+        {
+            var mapper = _context.MapCommand().Map<Ping>();
+
+            var thrown = Assert.Throws<ArgumentException>(() => mapper.RegisterCommand<MissingMemberCommand>());
+
+            StringAssert.Contains(nameof(MissingMemberCommand.Missing), thrown.Message);
+            StringAssert.Contains(nameof(IMissing), thrown.Message);
+            Assert.DoesNotThrow(() => _context.Tell(new Ping("nothing registered")));
+        }
+
+        [Test]
+        public void Register_AnInjectMemberOfTheMessageType_Throws_MembersComeFromTheContextOnly()
+        {
+            var thrown = Assert.Throws<ArgumentException>(() => _context.MapCommand().Map<Ping, MessageMemberCommand>());
+
+            StringAssert.Contains("constructor parameter instead", thrown.Message);
+        }
+
+        [Test]
+        public void Register_AReadonlyInjectField_Throws()
+        {
+            Assert.Throws<ArgumentException>(() => _context.MapCommand().Map<Ping, ReadonlyMemberCommand>());
+        }
+
+        [Test]
+        public void Register_AnInjectPropertyWithoutASetter_Throws()
+        {
+            Assert.Throws<ArgumentException>(() => _context.MapCommand().Map<Ping, GetterOnlyMemberCommand>());
+        }
+
+        [Test]
+        public void Register_AnInjectMemberOfABaseClass_IsCheckedToo()
+        {
+            Assert.Throws<ArgumentException>(() => _context.MapCommand().Map<Ping, DerivedFromMissingMemberCommand>());
+        }
+
+        [Test]
+        public void Tell_FillsInjectMembers_AndLeavesAnAbsentOptionalOneAsItWas()
+        {
+            _context.MapCommand().Map<Ping, MemberCommand>();
+
+            _context.Tell(new Ping("members"));
+
+            CollectionAssert.AreEqual(new[] { "members:fallback" }, _context.Resolve<Ledger>().Entries);
         }
 
         private static T RunSync<T>(Func<Task<T>> start, int timeoutMilliseconds = 15000)
@@ -509,6 +730,167 @@ namespace OpenUGD.Commands.Tests
         public sealed class ThrowingCommand : ICommand
         {
             public void Execute() => throw new InvalidOperationException("boom");
+        }
+        public sealed class RetellCommand : ICommand
+        {
+            private readonly Context _context;
+            private readonly Ledger _ledger;
+            private readonly Ping _message;
+
+            public RetellCommand(Ping message, Ledger ledger, Context context)
+            {
+                _message = message;
+                _ledger = ledger;
+                _context = context;
+            }
+
+            public void Execute()
+            {
+                _ledger.Entries.Add(_message.Text);
+                if (_message.Text != "retold") _context.Tell(new Ping("retold"));
+            }
+        }
+
+        public sealed class StatelessCommand : ICommand
+        {
+            public static int Runs;
+
+            public void Execute() => Runs++;
+        }
+
+        public sealed class ThrowingArgumentCommand : ICommand
+        {
+            public void Execute() => throw new ArgumentException("bad");
+        }
+
+        public sealed class ThrowingConstructorCommand : ICommand
+        {
+            public ThrowingConstructorCommand(Ping message) => throw new FormatException("constructor");
+
+            public void Execute()
+            {
+            }
+        }
+
+        public sealed class ThrowingListener : ITellMessage
+        {
+            public void Tell(object message) => throw new NotSupportedException("listener");
+        }
+
+        public sealed class AmbiguousCommand : ICommand
+        {
+            public AmbiguousCommand(Ping message)
+            {
+            }
+
+            public AmbiguousCommand(Ledger ledger)
+            {
+            }
+
+            public void Execute()
+            {
+            }
+        }
+
+        public class MissingMemberCommand : ICommand
+        {
+            [Inject] public IMissing Missing;
+
+            public void Execute()
+            {
+            }
+        }
+
+        public sealed class DerivedFromMissingMemberCommand : MissingMemberCommand
+        {
+        }
+
+        public sealed class MessageMemberCommand : ICommand
+        {
+            [Inject] private Ping _message;
+
+            public void Execute()
+            {
+            }
+        }
+
+        public sealed class ReadonlyMemberCommand : ICommand
+        {
+            [Inject] public readonly Ledger Ledger;
+
+            public void Execute()
+            {
+            }
+        }
+
+        public sealed class GetterOnlyMemberCommand : ICommand
+        {
+            [Inject] public Ledger Ledger => null;
+
+            public void Execute()
+            {
+            }
+        }
+
+        public sealed class MemberCommand : ICommand
+        {
+            private readonly Ping _message;
+
+            [Inject] private Ledger _ledger;
+            [Inject(Optional = true)] private IMissing _missing = null;
+
+            public MemberCommand(Ping message) => _message = message;
+
+            [Inject] public Ledger AlsoLedger { get; private set; }
+
+            public void Execute()
+            {
+                Assert.AreSame(_ledger, AlsoLedger);
+                _ledger.Entries.Add(_message.Text + ":" + (_missing == null ? "fallback" : "injected"));
+            }
+        }
+
+        // Counts how often the mapper inspects the command's type through this Type object.
+        private sealed class CountingType : TypeDelegator
+        {
+            public int Reads;
+
+            public CountingType(Type type) : base(type)
+            {
+            }
+
+            public override Type BaseType
+            {
+                get
+                {
+                    Reads++;
+                    return base.BaseType;
+                }
+            }
+
+            protected override TypeAttributes GetAttributeFlagsImpl()
+            {
+                Reads++;
+                return base.GetAttributeFlagsImpl();
+            }
+
+            public override ConstructorInfo[] GetConstructors(BindingFlags bindingAttr)
+            {
+                Reads++;
+                return base.GetConstructors(bindingAttr);
+            }
+
+            public override FieldInfo[] GetFields(BindingFlags bindingAttr)
+            {
+                Reads++;
+                return base.GetFields(bindingAttr);
+            }
+
+            public override PropertyInfo[] GetProperties(BindingFlags bindingAttr)
+            {
+                Reads++;
+                return base.GetProperties(bindingAttr);
+            }
         }
     }
 }
