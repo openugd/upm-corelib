@@ -202,9 +202,9 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
 - Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
   that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
-  `com.openugd.presenters.tests` (78 tests over the presenter tree built with a hand-written
-  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, `CloseWith`, the guards, the deleted surface
-  and the presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
+  `com.openugd.presenters.tests` (84 tests over the presenter tree built with a hand-written
+  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach` and a failed attach, `CloseWith`, the guards,
+  the deleted surface and the presenter open sequence, all through public API), `com.openugd.commands.tests` (10 tests over the
   command mapper and its stripping annotations) and `com.openugd.logging.tests` (27 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
   sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
@@ -479,6 +479,16 @@ rename entry near the top of this section for the full table.
 - **A write allocates nothing of its own** (audit UH-17). A derived logger rebuilt its tag path, one string
   per tag segment, for every record that passed its own filter — before the root's filter could still drop it.
   The path is now built once, when the logger is derived, and the one level test includes the root's.
+- **A presenter whose attach fails no longer stays in the tree** (audit CC-4). An exception from the
+  factory's `Inject` or from `OnInitialize` left the child in its parent's `Children` with a live
+  `Lifetime`, so the parent went on closing and counting a presenter that never initialized. `AddPresenter`,
+  `Attach` and `Presenter.Root` now terminate the presenter's lifetime and unlink it before rethrowing the
+  failure as itself. Whatever `OnInitialize` registered before it threw runs, and so does clean-up the
+  caller registered on the definition given to `Attach`; `OnClose` does not, because `OnInitialize` never
+  completed. If undoing the attach throws too, both arrive as one `AggregateException`, the attach failure
+  first.
+- **A presenter whose `OnClose` throws is still unlinked from its parent** (audit CC-4). The unlink came
+  after `OnClose` without a `finally`, so the closed presenter stayed in `Children`.
 
 
 - `SliderIntWidget` ignored range changes after the first render: it updated `value` on a model change

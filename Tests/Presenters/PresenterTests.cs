@@ -1059,6 +1059,108 @@ namespace OpenUGD.Presenters.Tests
             CollectionAssert.IsEmpty(presenter.Log, "OnInitialize must not run when injection failed");
         }
 
+        // ------------------------------------------------------------------ a failed attach is undone (CC-4)
+
+        [Test]
+        public void AddPresenter_WhenOnInitializeThrows_LeavesNoZombieChild()
+        {
+            var log = new List<string>();
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", log));
+            var failure = new InvalidOperationException("cannot initialize");
+            var child = new FailingInitializePresenter(log, failure);
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => parent.AddPresenter(child));
+
+            Assert.AreSame(failure, thrown, "the failure reaches the caller as itself");
+            CollectionAssert.IsEmpty(parent.Children, "a child whose OnInitialize threw must not stay attached");
+            Assert.IsTrue(child.Lifetime.IsTerminated, "its scope is ended, not left alive under the parent");
+            Assert.IsFalse(parent.Lifetime.IsTerminated, "the parent is unaffected");
+            CollectionAssert.AreEqual(new[] { "p:initialize", "f:initialize", "f:clean-up" }, log,
+                "what OnInitialize registered before it threw runs; OnClose does not, OnInitialize never completed");
+        }
+
+        [Test]
+        public void AddPresenter_WhenTheFactoryThrows_LeavesNoZombieChild()
+        {
+            var log = new List<string>();
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", log));
+            var child = new TreePresenter("c", log);
+            _factory.OnInject = presenter => {
+                if (presenter == child) throw new InvalidOperationException("cannot inject");
+            };
+
+            Assert.Throws<InvalidOperationException>(() => parent.AddPresenter(child));
+
+            CollectionAssert.IsEmpty(parent.Children);
+            Assert.IsTrue(child.Lifetime.IsTerminated);
+            CollectionAssert.AreEqual(new[] { "p:initialize" }, log, "neither OnInitialize nor OnClose ran");
+
+            log.Clear();
+            parent.Close();
+            CollectionAssert.AreEqual(new[] { "p:close" }, log, "closing the parent later does not reach the child");
+        }
+
+        [Test]
+        public void AddPresenter_AfterAFailedAttach_TheParentStillTakesChildren()
+        {
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", new List<string>()));
+            Assert.Throws<InvalidOperationException>(() => parent.AddPresenter(
+                new FailingInitializePresenter(new List<string>(), new InvalidOperationException("boom"))));
+
+            var sibling = parent.AddPresenter(new TreePresenter("s", new List<string>()));
+
+            CollectionAssert.AreEqual(new Presenter[] { sibling }, parent.Children);
+        }
+
+        [Test]
+        public void Attach_WhenOnInitializeThrows_TerminatesTheDefinition_AndRunsTheHostsCleanUp()
+        {
+            // A host that registered the release of a pooled view before the attach gets the view back.
+            var definition = NewDefinition();
+            var log = new List<string>();
+            definition.Lifetime.AddAction(() => log.Add("host:release-view"));
+            var presenter = new FailingInitializePresenter(log, new InvalidOperationException("boom"));
+
+            Assert.Throws<InvalidOperationException>(() => Presenter.Attach(presenter, definition, _factory));
+
+            Assert.IsTrue(definition.IsTerminated, "the presenter took the definition over, and it failed");
+            CollectionAssert.AreEqual(new[] { "f:initialize", "f:clean-up", "host:release-view" }, log);
+            Assert.Throws<InvalidOperationException>(() => Presenter.Attach(presenter, NewDefinition(), _factory),
+                "a presenter whose attach failed stays closed");
+        }
+
+        [Test]
+        public void Attach_WhenUndoingAFailedAttachThrowsToo_ReportsBoth_AttachFailureFirst()
+        {
+            var failure = new InvalidOperationException("cannot initialize");
+            var undo = new InvalidOperationException("cannot clean up");
+            var definition = NewDefinition();
+            var presenter = new FailingInitializePresenter(new List<string>(), failure, undo);
+
+            var thrown = Assert.Throws<AggregateException>(() => Presenter.Attach(presenter, definition, _factory));
+
+            CollectionAssert.AreEqual(new Exception[] { failure, undo }, thrown.InnerExceptions);
+            Assert.IsTrue(definition.IsTerminated);
+        }
+
+        [Test]
+        public void Close_WhenOnCloseThrows_StillUnlinksFromTheParent()
+        {
+            var log = new List<string>();
+            var parent = CreateRoot().AddPresenter(new TreePresenter("p", log));
+            var failure = new InvalidOperationException("cannot close");
+            var child = parent.AddPresenter(new FailingClosePresenter(failure));
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => child.Close());
+
+            Assert.AreSame(failure, thrown);
+            Assert.IsTrue(child.Lifetime.IsTerminated);
+            CollectionAssert.IsEmpty(parent.Children, "a presenter whose OnClose threw is closed and unlinked");
+            log.Clear();
+            Assert.DoesNotThrow(() => parent.Close(), "the parent must not close the child a second time");
+            CollectionAssert.AreEqual(new[] { "p:close" }, log);
+        }
+
         [Test]
         public void ReadingLifetimeBeforeAttach_ThrowsInsteadOfReturningNull()
         {
@@ -1269,6 +1371,42 @@ namespace OpenUGD.Presenters.Tests
             protected override void OnInitialize() => Log.Add($"{_name}:initialize");
 
             protected override void OnClose() => Log.Add($"{_name}:close");
+        }
+
+        // Registers a clean-up, then throws from OnInitialize — optionally from the clean-up too.
+        private sealed class FailingInitializePresenter : Presenter
+        {
+            private readonly List<string> _log;
+            private readonly Exception _failure;
+            private readonly Exception _cleanUpFailure;
+
+            public FailingInitializePresenter(List<string> log, Exception failure, Exception cleanUpFailure = null)
+            {
+                _log = log;
+                _failure = failure;
+                _cleanUpFailure = cleanUpFailure;
+            }
+
+            protected override void OnInitialize()
+            {
+                _log.Add("f:initialize");
+                Lifetime.AddAction(() => {
+                    _log.Add("f:clean-up");
+                    if (_cleanUpFailure != null) throw _cleanUpFailure;
+                });
+                throw _failure;
+            }
+
+            protected override void OnClose() => _log.Add("f:close");
+        }
+
+        private sealed class FailingClosePresenter : Presenter
+        {
+            private readonly Exception _failure;
+
+            public FailingClosePresenter(Exception failure) => _failure = failure;
+
+            protected override void OnClose() => throw _failure;
         }
 
         private sealed class ListModelPresenter : Presenter<FakeView, List<int>>

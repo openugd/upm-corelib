@@ -119,10 +119,18 @@ namespace OpenUGD.Presenters
     /// <see cref="OpenUGD.Lifetime"/>: children attached later, clean-up registered on <see cref="Lifetime"/>
     /// (including a view's <c>ViewLifetime</c>), and children attached earlier, all newest first; then
     /// <see cref="OnClose"/>; then the unlink from the parent. So a presenter's children have closed by the time
-    /// its <see cref="OnClose"/> runs, and each child repeats the sequence. A child that throws while closing
-    /// does not prevent its siblings from closing. The failures are reported by <see cref="Close"/> once
-    /// everything has run, as <see cref="OpenUGD.Lifetime"/> reports them: a single failure as itself, two or
-    /// more as one <see cref="AggregateException"/>.
+    /// its <see cref="OnClose"/> runs, and each child repeats the sequence. The unlink happens even when
+    /// <see cref="OnClose"/> throws, and a child that throws while closing does not prevent its siblings from
+    /// closing. The failures are reported by <see cref="Close"/> once everything has run, as
+    /// <see cref="OpenUGD.Lifetime"/> reports them: a single failure as itself, two or more as one
+    /// <see cref="AggregateException"/>.
+    /// </para>
+    /// <para>
+    /// <b>A failed attach is undone.</b> If the <see cref="IPresenterFactory"/>'s <c>Inject</c> or the
+    /// presenter's <see cref="OnInitialize"/> throws, the presenter's lifetime is terminated and it is unlinked
+    /// from its parent before the exception reaches the caller, so no half-initialized presenter is left in
+    /// <see cref="Children"/>. <see cref="OnClose"/> does not run for it — its <see cref="OnInitialize"/> never
+    /// completed — but whatever it had registered on <see cref="Lifetime"/> before the failure does.
     /// </para>
     /// <para>
     /// <b>Engine-free.</b> Nothing in this assembly references <c>UnityEngine</c>. A presenter tree can be
@@ -142,6 +150,10 @@ namespace OpenUGD.Presenters
         private readonly List<Presenter> _children = new List<Presenter>();
         private Lifetime.Definition _definition;
         private IPresenterFactory _factory;
+
+        // Set when Inject or OnInitialize threw, just before the attach is undone: OnClose is skipped for a
+        // presenter whose OnInitialize never completed.
+        private bool _attachFailed;
 
         /// <summary>
         /// This presenter's scope. Terminates when the presenter closes, when its parent closes, or when the
@@ -215,6 +227,9 @@ namespace OpenUGD.Presenters
         /// <paramref name="presenter"/> has already been attached somewhere. A presenter is attached once;
         /// there is no reparenting, because its lifetime is its parent's.
         /// </exception>
+        /// <exception cref="Exception">Whatever the <see cref="IPresenterFactory"/>'s <c>Inject</c> or
+        /// <paramref name="presenter"/>'s <see cref="OnInitialize"/> threw. The child is closed and is not in
+        /// <see cref="Children"/> by then; see <see cref="Attach"/>.</exception>
         public T AddPresenter<T>(T presenter) where T : Presenter
         {
             if (presenter == null)
@@ -233,6 +248,8 @@ namespace OpenUGD.Presenters
                     $"cannot attach {presenter.GetType().Name} to {GetType().Name}: {GetType().Name} has " +
                     "already closed. Check Lifetime.IsTerminated before attaching, and skip the whole open.");
 
+            // Linked before the attach so the child's Inject and OnInitialize see their parent. If either throws,
+            // Attach terminates the child's lifetime, and its teardown unlinks it again.
             _children.Add(presenter);
             presenter.Parent = this;
             Attach(presenter, definition, _factory);
@@ -257,8 +274,15 @@ namespace OpenUGD.Presenters
         /// <b>Ownership.</b> The presenter takes <paramref name="definition"/> over: <see cref="Close"/>
         /// terminates it, and terminating it closes the presenter. In that order, within the attach: the
         /// presenter's teardown is registered on the lifetime, <paramref name="factory"/>'s
-        /// <see cref="IPresenterFactory.Inject"/> runs, then <see cref="OnInitialize"/>. An exception from
-        /// either of the last two propagates to the caller.
+        /// <see cref="IPresenterFactory.Inject"/> runs, then <see cref="OnInitialize"/>.
+        /// </para>
+        /// <para>
+        /// <b>Failure.</b> If <see cref="IPresenterFactory.Inject"/> or <see cref="OnInitialize"/> throws, the
+        /// attach is undone before the exception reaches the caller: <paramref name="definition"/> is terminated,
+        /// which runs whatever <see cref="OnInitialize"/> registered before it threw and whatever the caller
+        /// registered on <paramref name="definition"/>, and unlinks the presenter from its parent.
+        /// <see cref="OnClose"/> does not run, because <see cref="OnInitialize"/> did not complete. The presenter
+        /// stays closed: it cannot be attached again.
         /// </para>
         /// <para>
         /// <b>Order of clean-up.</b> The lifetime unwinds newest first, so clean-up the caller registers on
@@ -276,6 +300,11 @@ namespace OpenUGD.Presenters
         /// <exception cref="ArgumentNullException">An argument is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException"><paramref name="presenter"/> has already been attached,
         /// or <paramref name="definition"/> has already terminated.</exception>
+        /// <exception cref="Exception">Whatever <see cref="IPresenterFactory.Inject"/> or
+        /// <see cref="OnInitialize"/> threw, rethrown as itself once the attach has been undone.</exception>
+        /// <exception cref="AggregateException">The attach failed and undoing it failed too: the first inner
+        /// exception is the attach failure, the second what terminating <paramref name="definition"/>
+        /// threw.</exception>
         public static void Attach(Presenter presenter, Lifetime.Definition definition, IPresenterFactory factory)
         {
             if (presenter == null)
@@ -295,8 +324,33 @@ namespace OpenUGD.Presenters
             presenter._definition = definition;
             definition.Lifetime.AddAction(presenter.Teardown);
 
-            factory.Inject(presenter);
-            presenter.OnInitialize();
+            try
+            {
+                factory.Inject(presenter);
+                presenter.OnInitialize();
+            }
+            catch (Exception failure)
+            {
+                // A presenter that failed to initialize must not stay attached: in its parent's Children it would
+                // be closed, refreshed and counted like a working one. Terminating the definition runs its
+                // teardown, which unlinks it, and skips OnClose.
+                presenter._attachFailed = true;
+                Exception undo = null;
+                try
+                {
+                    definition.Terminate();
+                }
+                catch (Exception exception)
+                {
+                    undo = exception;
+                }
+
+                if (undo == null) throw;
+
+                throw new AggregateException(
+                    $"attaching {presenter.GetType().Name} failed, and so did undoing the attach. The presenter " +
+                    "is closed and unlinked; the first inner exception is the attach failure.", failure, undo);
+            }
         }
 
         /// <summary>
@@ -308,12 +362,19 @@ namespace OpenUGD.Presenters
         }
 
         /// <summary>
-        /// Called once, when the presenter's lifetime terminates, after its children have closed and after the
-        /// clean-up registered on <see cref="Lifetime"/> has run.
+        /// Called once, when the presenter's lifetime terminates, last: after its children have closed and after
+        /// the clean-up registered on <see cref="Lifetime"/> has run. Only the unlink from the parent comes after
+        /// it, and happens even if this throws.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Anything registered on <see cref="Lifetime"/> unwinds first, so prefer <c>Lifetime.AddAction</c>
         /// for releasing a specific resource and keep this for the presenter's own "I am going away" logic.
+        /// </para>
+        /// <para>
+        /// Paired with <see cref="OnInitialize"/>: a presenter whose attach failed — the factory's <c>Inject</c>
+        /// or <see cref="OnInitialize"/> threw — is closed without it.
+        /// </para>
         /// </remarks>
         protected virtual void OnClose()
         {
@@ -321,26 +382,25 @@ namespace OpenUGD.Presenters
 
         // Registered on the presenter's lifetime at attach, so everything registered on or nested in it after the
         // attach — children, the view scope, the presenter's own clean-up — has unwound by the time it runs, and
-        // whatever a host registered on the definition before the attach runs after it.
+        // whatever a host registered on the definition before the attach runs after it. Every child's lifetime is
+        // nested in this one after this action was registered, so no child is left to close here: each has closed
+        // and unlinked itself.
         private void Teardown()
         {
-            OnClose();
-
-            if (_children.Count != 0)
+            try
             {
-                // Snapshot: each child removes itself from this list as it closes.
-                var children = _children.ToArray();
-                for (var i = children.Length - 1; i >= 0; i--)
-                {
-                    children[i]._definition.Terminate();
-                }
+                if (!_attachFailed) OnClose();
             }
-
-            var parent = Parent;
-            if (parent != null)
+            finally
             {
-                parent._children.Remove(this);
-                Parent = null;
+                // Unconditional: a presenter whose OnClose threw is still closed, and must not stay in its
+                // parent's Children.
+                var parent = Parent;
+                if (parent != null)
+                {
+                    parent._children.Remove(this);
+                    Parent = null;
+                }
             }
         }
 
