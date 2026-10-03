@@ -90,6 +90,7 @@ namespace OpenUGD.Commands
         /// Builds the command from the message (an instance of this mapper's message type) and the execution's
         /// <see cref="Lifetime"/>, which ends when the command's <see cref="ICommand.Execute"/> returns. Must not
         /// return <c>null</c>; if it throws, or returns <c>null</c>, that execution fails like a throwing command.
+        /// The command is run as returned: its <c>[Inject]</c> members are not filled, so hand it what it needs.
         /// </param>
         /// <param name="oneTime">
         /// When <see langword="true"/> the registration runs once — not again from a dispatch that its own command
