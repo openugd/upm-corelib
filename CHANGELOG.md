@@ -220,7 +220,7 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   `com.openugd.presenters.tests` (84 tests over the presenter tree built with a hand-written
   `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach` and a failed attach, `CloseWith`, the guards,
   the deleted surface and the presenter open sequence, all through public API),
-  `com.openugd.commands.tests` (25 tests over the command mapper — registration, its check and its undoing,
+  `com.openugd.commands.tests` (26 tests over the command mapper — registration, its check and its undoing,
   factories, the execution's lifetime, exact-type routing — and its stripping annotations) and
   `com.openugd.logging.tests` (29 tests over tag paths, the filters, `IsEnabled`, sink fan-out, writes and
   subscriptions from other threads and from inside a sink, teardown, and `UseUnityConsole`'s arguments).
@@ -518,8 +518,8 @@ rename entry near the top of this section for the full table.
     `ICommandMapper`.
   - A command registered by type is checked at registration: if no constructor that `Context.Instantiate`
     would use can be satisfied from the message, the registration, the execution's lifetime and the context's
-    services, `RegisterCommand` throws `ArgumentException` naming the parameter. Before, every `Tell` failed,
-    from wherever the message was sent.
+    services, `RegisterCommand` throws `ArgumentException` naming the parameter; so it does for a struct, which
+    `Context.Instantiate` never builds. Before, every `Tell` failed, from wherever the message was sent.
   - Each execution gets a fresh `Lifetime`, nested in the registration's and terminated when `Execute` returns
     or throws. The `Lifetime` a command took was its registration's, so clean-up a command registered on it —
     a subscription, say — piled up for as long as the registration lived, one more per message.

@@ -67,8 +67,10 @@ namespace OpenUGD.Commands
         {
             if (commandType == null) throw new ArgumentNullException(nameof(commandType));
 
+            // A struct passes the other tests, and Context.Instantiate refuses every value type, so it is refused
+            // here rather than on every Tell.
             if (!typeof(ICommand).IsAssignableFrom(commandType) || commandType.IsAbstract ||
-                commandType.IsInterface || commandType.IsGenericTypeDefinition)
+                commandType.IsInterface || commandType.IsValueType || commandType.ContainsGenericParameters)
             {
                 throw new ArgumentException(
                     "'" + commandType + "' cannot be registered against '" + _messageType +

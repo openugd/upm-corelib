@@ -75,6 +75,17 @@ namespace OpenUGD.Commands.Tests
             Assert.Throws<ArgumentException>(() => mapper.RegisterCommand(typeof(Ledger)));
         }
 
+        // Found in review: a struct with a satisfiable constructor passed the registration check, and
+        // Context.Instantiate refuses every value type, so each Tell failed instead.
+        [Test]
+        public void Register_AStructCommand_ThrowsThen_NotAtTell()
+        {
+            var mapper = _context.MapCommand().Map<Ping>();
+
+            Assert.Throws<ArgumentException>(() => mapper.RegisterCommand<StructCommand>());
+            Assert.DoesNotThrow(() => _context.Tell(new Ping("nothing registered")));
+        }
+
         // ------------------------------------------------------------------ undoing a registration (CC-22)
 
         [Test]
@@ -360,6 +371,17 @@ namespace OpenUGD.Commands.Tests
             }
 
             public void Execute() => _ledger.Entries.Add(_message.Text);
+        }
+
+        public struct StructCommand : ICommand
+        {
+            public StructCommand(Ping message)
+            {
+            }
+
+            public void Execute()
+            {
+            }
         }
 
         public sealed class NeedsMissingCommand : ICommand
