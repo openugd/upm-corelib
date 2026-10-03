@@ -31,14 +31,13 @@ namespace OpenUGD.Presenters
         Type ViewType { get; }
 
         /// <summary>
-        /// Attaches (or, with <c>null</c>, detaches) the view.
+        /// Attaches (or, with <c>null</c>, detaches) the view. Same as <see cref="Presenter{TView}.SetView"/>.
         /// </summary>
         /// <param name="view">
         /// An instance assignable to <see cref="ViewType"/>, or <c>null</c> to detach.
         /// </param>
         /// <exception cref="InvalidCastException"><paramref name="view"/> is not assignable to
-        /// <see cref="ViewType"/>. This is deliberate: a mistyped view is a wiring bug, and the cast names
-        /// both types.</exception>
+        /// <see cref="ViewType"/>.</exception>
         void SetView(object view);
     }
 
@@ -88,58 +87,61 @@ namespace OpenUGD.Presenters
     /// <para>
     /// <b>Three methods.</b> <see cref="AddPresenter{T}"/> grows the tree, <see cref="Close"/> ends a branch,
     /// <see cref="Dispose"/> is <see cref="Close"/> under another name so a presenter composes with
-    /// <c>using</c>. Everything else is an extension method over <see cref="Children"/>,
-    /// <see cref="Lifetime"/> and <see cref="Context"/>; see <c>PresenterExtensions</c>.
+    /// <c>using</c>. <see cref="Attach"/> is the one static entry point, for code that roots a presenter on a
+    /// scope of its own. Everything else is an extension method over <see cref="Children"/> and
+    /// <see cref="Lifetime"/>; see <c>PresenterExtensions</c>.
     /// </para>
     /// <para>
-    /// <b>A presenter is not constructed into the tree.</b> It is constructed by you (or by
-    /// <see cref="OpenUGD.Context"/>), then attached with <see cref="AddPresenter{T}"/>, which is what gives
-    /// it its <see cref="Lifetime"/>, its <see cref="Context"/> and its injected fields. Nothing in this
-    /// class is usable from a constructor — <see cref="Lifetime"/> and <see cref="Context"/> throw there,
-    /// loudly, rather than handing back <c>null</c>. Use <see cref="OnInitialize"/>.
+    /// <b>A presenter is not constructed into the tree.</b> It is constructed by you (or by an
+    /// <see cref="IPresenterFactory"/>), then attached — by <see cref="AddPresenter{T}"/>, by
+    /// <see cref="Attach"/> or, for the root, by <see cref="Root"/>'s constructor — which is what gives it its
+    /// <see cref="Lifetime"/> and has its <see cref="IPresenterFactory"/> inject it. Nothing in this class is
+    /// usable from a constructor — <see cref="Lifetime"/> throws there, loudly, rather than handing back
+    /// <c>null</c>. Use <see cref="OnInitialize"/>.
     /// </para>
     /// <para>
-    /// <b>Teardown.</b> Terminating a presenter's lifetime runs, in order: whatever
-    /// <see cref="OnInitialize"/> and the presenter's own code registered on the lifetime (LIFO, per
-    /// <see cref="OpenUGD.Lifetime"/>), then <see cref="OnClose"/>, then every child, then the unlink from
-    /// the parent. Children are terminated leaf-last-registered-first, and each child repeats the sequence. A
-    /// child that throws while closing does not prevent its siblings from closing. The failures are reported
-    /// by <see cref="Close"/> once everything has run, as <see cref="OpenUGD.Lifetime"/> reports them: a single
-    /// failure as itself, two or more as one <see cref="AggregateException"/>.
+    /// <b>No container.</b> This assembly references <c>com.openugd.lifetime</c> and nothing else from the
+    /// family. Construction and injection go through the <see cref="IPresenterFactory"/> the tree was rooted
+    /// with; <c>ContextPresenterFactory</c> in <c>com.openugd.corelib</c> is the one over
+    /// <c>OpenUGD.Context</c>, and with it <c>[Inject]</c> members of a presenter attached with <c>new</c> are
+    /// filled in before <see cref="OnInitialize"/>. A presenter reaches a service through such a member, not
+    /// through the container: there is no <c>Context</c> property.
     /// </para>
     /// <para>
-    /// <b>Engine-free.</b> Nothing in this file references <c>UnityEngine</c>. A presenter tree can be built,
-    /// driven and asserted on in a plain unit test.
+    /// <b>Teardown.</b> Terminating a presenter's lifetime unwinds it in reverse order of registration, per
+    /// <see cref="OpenUGD.Lifetime"/>: children attached later, clean-up registered on <see cref="Lifetime"/>
+    /// (including a view's <c>ViewLifetime</c>), and children attached earlier, all newest first; then
+    /// <see cref="OnClose"/>; then the unlink from the parent. So a presenter's children have closed by the time
+    /// its <see cref="OnClose"/> runs, and each child repeats the sequence. A child that throws while closing
+    /// does not prevent its siblings from closing. The failures are reported by <see cref="Close"/> once
+    /// everything has run, as <see cref="OpenUGD.Lifetime"/> reports them: a single failure as itself, two or
+    /// more as one <see cref="AggregateException"/>.
+    /// </para>
+    /// <para>
+    /// <b>Engine-free.</b> Nothing in this assembly references <c>UnityEngine</c>. A presenter tree can be
+    /// built, driven and asserted on in a plain unit test, with a hand-written <see cref="IPresenterFactory"/>.
     /// </para>
     /// <para>
     /// <b>Breaking changes in 2.0.0.</b> <c>OnReady</c> is gone — see
     /// <see cref="Presenter{TView}.OnRefresh"/> for why and for what replaces it. <c>ISubscribeNotify</c>,
     /// <c>Presenter.Internal.Ready</c> and the per-presenter notification <c>Signal</c> that existed only to
     /// drive it are gone with it. The presenter no longer implements <c>IResolve</c>/<c>IInject</c> from the
-    /// deprecated dependency-injection package; use <see cref="Context"/>. <c>Children</c> is a live view
-    /// rather than a fresh array per call.
+    /// deprecated dependency-injection package, and does not expose a container either: use an injected member.
+    /// <c>Children</c> is a live view rather than a fresh array per call.
     /// </para>
     /// </remarks>
     public abstract class Presenter : IDisposable
     {
         private readonly List<Presenter> _children = new List<Presenter>();
         private Lifetime.Definition _definition;
-        private Context _context;
-        private bool _initialized;
+        private IPresenterFactory _factory;
 
         /// <summary>
         /// This presenter's scope. Terminates when the presenter closes, when its parent closes, or when the
-        /// context that owns the tree is disposed.
+        /// scope it was attached under terminates.
         /// </summary>
         /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
-        public Lifetime Lifetime => _definition != null ? _definition.Lifetime : throw NotInitialized();
-
-        /// <summary>
-        /// The context this presenter was injected from, and the one its children will be injected from. Use
-        /// it to resolve a service a presenter needs but does not want as a constructor parameter.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">The presenter has not been attached yet.</exception>
-        public Context Context => _context != null ? _context : throw NotInitialized();
+        public Lifetime Lifetime => _definition != null ? _definition.Lifetime : throw NotAttached();
 
         /// <summary>
         /// This presenter's children, in attachment order.
@@ -152,9 +154,15 @@ namespace OpenUGD.Presenters
         public IReadOnlyList<Presenter> Children => _children;
 
         /// <summary>
-        /// The presenter this one is attached to, or <c>null</c> for a <see cref="Root"/> and after closing.
+        /// The presenter this one is attached to, or <c>null</c> for a <see cref="Root"/>, for a presenter
+        /// attached with <see cref="Attach"/>, and after closing.
         /// </summary>
         protected Presenter Parent { get; private set; }
+
+        /// <summary>
+        /// Whether <see cref="Attach"/> has run for this presenter. Stays <c>true</c> after it closes.
+        /// </summary>
+        private protected bool IsAttached => _definition != null;
 
         /// <summary>
         /// Closes this presenter and, with it, its whole subtree. Idempotent.
@@ -168,7 +176,7 @@ namespace OpenUGD.Presenters
         /// <exception cref="Exception">Exactly one clean-up action threw: that exception, rethrown with its
         /// original stack trace.</exception>
         /// <exception cref="AggregateException">Two or more clean-up actions threw.</exception>
-        public void Close() => (_definition ?? throw NotInitialized()).Terminate();
+        public void Close() => (_definition ?? throw NotAttached()).Terminate();
 
         /// <summary>
         /// Same as <see cref="Close"/>; lets a presenter be used with <c>using</c>.
@@ -176,9 +184,9 @@ namespace OpenUGD.Presenters
         public void Dispose() => Close();
 
         /// <summary>
-        /// Attaches <paramref name="presenter"/> as a child: gives it a nested
-        /// <see cref="OpenUGD.Lifetime"/>, injects it from this presenter's <see cref="Context"/>, and calls
-        /// its <see cref="OnInitialize"/>.
+        /// Attaches <paramref name="presenter"/> as a child: gives it a <see cref="OpenUGD.Lifetime"/> nested in
+        /// this presenter's, has this presenter's <see cref="IPresenterFactory"/> inject it, and calls its
+        /// <see cref="OnInitialize"/>.
         /// </summary>
         /// <remarks>
         /// <para>
@@ -195,8 +203,6 @@ namespace OpenUGD.Presenters
         /// <param name="presenter">The presenter to attach. Must be freshly constructed.</param>
         /// <returns><paramref name="presenter"/>.</returns>
         /// <exception cref="ArgumentNullException"><paramref name="presenter"/> is <c>null</c>.</exception>
-        /// <exception cref="ArgumentException"><paramref name="presenter"/> is already a child of this
-        /// presenter.</exception>
         /// <exception cref="InvalidOperationException">
         /// This presenter has not been attached yet, or its lifetime has already terminated, or
         /// <paramref name="presenter"/> has already been attached somewhere. A presenter is attached once;
@@ -206,14 +212,10 @@ namespace OpenUGD.Presenters
         {
             if (presenter == null)
                 throw new ArgumentNullException(nameof(presenter), $"{nameof(presenter)} can't be null");
-            if (!_initialized)
-                throw NotInitialized();
-            if (presenter._initialized)
-                throw new InvalidOperationException(
-                    $"{presenter.GetType().Name} has already been attached; a presenter cannot be attached twice");
-            if (_children.Contains(presenter))
-                throw new ArgumentException($"{presenter.GetType().Name} is already a child of {GetType().Name}",
-                    nameof(presenter));
+            if (_definition == null)
+                throw NotAttached();
+            if (presenter._definition != null)
+                throw AlreadyAttached(presenter);
 
             // Defined and checked before the child is linked, so attaching to a closed parent cannot leave a
             // half-attached child in _children. A scope defined on a terminated lifetime is born terminated
@@ -226,9 +228,62 @@ namespace OpenUGD.Presenters
 
             _children.Add(presenter);
             presenter.Parent = this;
-            Internal.Initialize(_context, presenter, definition);
+            Attach(presenter, definition, _factory);
 
             return presenter;
+        }
+
+        /// <summary>
+        /// Attaches <paramref name="presenter"/> to a scope of the caller's: gives it
+        /// <paramref name="definition"/> as its lifetime, has <paramref name="factory"/> inject it, and calls its
+        /// <see cref="OnInitialize"/>. The presenter then belongs to no parent; its children are injected by
+        /// <paramref name="factory"/> too.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is what <see cref="AddPresenter{T}"/> and <see cref="Root"/> do underneath, made public for code
+        /// that owns the scope a presenter lives in — a presenter-opening service, typically, which defines one
+        /// scope per open and attaches the presenter it built to it. The usual sequence is <c>Attach</c>, then
+        /// <c>SetModel</c>, then <c>SetView</c>, which renders once with both in place.
+        /// </para>
+        /// <para>
+        /// <b>Ownership.</b> The presenter takes <paramref name="definition"/> over: <see cref="Close"/>
+        /// terminates it, and terminating it closes the presenter. In that order, within the attach: the
+        /// presenter's teardown is registered on the lifetime, <paramref name="factory"/>'s
+        /// <see cref="IPresenterFactory.Inject"/> runs, then <see cref="OnInitialize"/>. An exception from
+        /// either of the last two propagates to the caller.
+        /// </para>
+        /// </remarks>
+        /// <param name="presenter">The presenter to attach. Must not have been attached before.</param>
+        /// <param name="definition">The scope to give it. Must still be alive: a host must check
+        /// <see cref="OpenUGD.Lifetime.Definition.IsTerminated"/> first and skip the whole open if it has
+        /// ended.</param>
+        /// <param name="factory">Injects <paramref name="presenter"/> and every child later attached under
+        /// it.</param>
+        /// <exception cref="ArgumentNullException">An argument is <c>null</c>.</exception>
+        /// <exception cref="InvalidOperationException"><paramref name="presenter"/> has already been attached,
+        /// or <paramref name="definition"/> has already terminated.</exception>
+        public static void Attach(Presenter presenter, Lifetime.Definition definition, IPresenterFactory factory)
+        {
+            if (presenter == null)
+                throw new ArgumentNullException(nameof(presenter), $"{nameof(presenter)} can't be null");
+            if (definition == null)
+                throw new ArgumentNullException(nameof(definition), $"{nameof(definition)} can't be null");
+            if (factory == null)
+                throw new ArgumentNullException(nameof(factory), $"{nameof(factory)} can't be null");
+            if (presenter._definition != null)
+                throw AlreadyAttached(presenter);
+            if (definition.IsTerminated)
+                throw new InvalidOperationException(
+                    $"cannot attach {presenter.GetType().Name}: the lifetime it would be attached to has " +
+                    "already terminated. Check IsTerminated before attaching, and skip the whole open.");
+
+            presenter._factory = factory;
+            presenter._definition = definition;
+            definition.Lifetime.AddAction(presenter.Teardown);
+
+            factory.Inject(presenter);
+            presenter.OnInitialize();
         }
 
         /// <summary>
@@ -240,7 +295,8 @@ namespace OpenUGD.Presenters
         }
 
         /// <summary>
-        /// Called once, when the presenter's lifetime terminates, before its children are closed.
+        /// Called once, when the presenter's lifetime terminates, after its children have closed and after the
+        /// clean-up registered on <see cref="Lifetime"/> has run.
         /// </summary>
         /// <remarks>
         /// Anything registered on <see cref="Lifetime"/> unwinds first, so prefer <c>Lifetime.AddAction</c>
@@ -250,87 +306,63 @@ namespace OpenUGD.Presenters
         {
         }
 
-        private InvalidOperationException NotInitialized() => new InvalidOperationException(
-            $"{GetType().Name} has not been attached yet, so it has no Lifetime and no Context. " +
-            "A presenter receives both from Presenter.AddPresenter (or from Presenter.Root's constructor). " +
-            "Do not touch them in a constructor - use OnInitialize.");
+        // Registered on the presenter's lifetime at attach, so it is the oldest entry and runs last: everything
+        // nested in the lifetime afterwards — children, the view scope, the presenter's own clean-up — has
+        // unwound by the time it runs.
+        private void Teardown()
+        {
+            OnClose();
+
+            if (_children.Count != 0)
+            {
+                // Snapshot: each child removes itself from this list as it closes.
+                var children = _children.ToArray();
+                for (var i = children.Length - 1; i >= 0; i--)
+                {
+                    children[i]._definition.Terminate();
+                }
+            }
+
+            var parent = Parent;
+            if (parent != null)
+            {
+                parent._children.Remove(this);
+                Parent = null;
+            }
+        }
+
+        private InvalidOperationException NotAttached() => new InvalidOperationException(
+            $"{GetType().Name} has not been attached yet, so it has no Lifetime. A presenter is attached by " +
+            "Presenter.AddPresenter, Presenter.Attach or Presenter.Root's constructor. Do not touch it in a " +
+            "constructor - use OnInitialize.");
+
+        private static InvalidOperationException AlreadyAttached(Presenter presenter) =>
+            new InvalidOperationException(
+                $"{presenter.GetType().Name} has already been attached; a presenter cannot be attached twice");
 
         /// <summary>
-        /// The root of a presenter tree: the one presenter that is attached to a
-        /// <see cref="OpenUGD.Lifetime"/> and a <see cref="OpenUGD.Context"/> directly instead of to a parent
-        /// presenter.
+        /// The root of a presenter tree: a presenter with no view, attached to a scope nested in a
+        /// <see cref="OpenUGD.Lifetime"/> instead of to a parent presenter, to hold the presenters added under it.
         /// </summary>
         public sealed class Root : Presenter
         {
             /// <summary>
-            /// Creates the root and initializes it immediately.
+            /// Creates the root and attaches it immediately, as <see cref="Presenter.Attach"/> does.
             /// </summary>
             /// <param name="lifetime">The lifetime the tree lives inside. A nested scope is defined on
             /// it.</param>
-            /// <param name="context">The context every presenter in this tree is injected from.</param>
+            /// <param name="factory">Injects every presenter attached in this tree.</param>
             /// <exception cref="ArgumentNullException">Either argument is <c>null</c>.</exception>
             /// <exception cref="InvalidOperationException"><paramref name="lifetime"/> has already
             /// terminated.</exception>
-            public Root(Lifetime lifetime, Context context)
+            public Root(Lifetime lifetime, IPresenterFactory factory)
             {
                 if (lifetime == null)
                     throw new ArgumentNullException(nameof(lifetime), $"{nameof(lifetime)} can't be null");
-                if (context == null)
-                    throw new ArgumentNullException(nameof(context), $"{nameof(context)} can't be null");
+                if (factory == null)
+                    throw new ArgumentNullException(nameof(factory), $"{nameof(factory)} can't be null");
 
-                Internal.Initialize(context, this, lifetime.DefineNested(nameof(Root)));
-            }
-        }
-
-        /// <summary>
-        /// Attachment, shared by <see cref="AddPresenter{T}"/> and <see cref="Root"/>. Not part of the public
-        /// API.
-        /// </summary>
-        internal static class Internal
-        {
-            internal static void Initialize(Context context, Presenter presenter, Lifetime.Definition definition)
-            {
-                if (context == null)
-                    throw new ArgumentNullException(nameof(context), $"{nameof(context)} can't be null");
-                if (presenter == null)
-                    throw new ArgumentNullException(nameof(presenter), $"{nameof(presenter)} can't be null");
-                if (definition == null)
-                    throw new ArgumentNullException(nameof(definition), $"{nameof(definition)} can't be null");
-                if (presenter._initialized)
-                    throw new InvalidOperationException(
-                        $"{presenter.GetType().Name} has already been attached; a presenter cannot be attached twice");
-                if (definition.IsTerminated)
-                    throw new InvalidOperationException(
-                        $"cannot attach {presenter.GetType().Name}: the lifetime it would be attached to has " +
-                        "already terminated. Check IsTerminated before attaching, and skip the whole open.");
-
-                presenter._context = context;
-                presenter._definition = definition;
-                presenter._initialized = true;
-
-                definition.Lifetime.AddAction(() => {
-                    presenter.OnClose();
-
-                    if (presenter._children.Count != 0)
-                    {
-                        // Snapshot: each child removes itself from this list as it closes.
-                        var children = presenter._children.ToArray();
-                        for (var i = children.Length - 1; i >= 0; i--)
-                        {
-                            children[i]._definition.Terminate();
-                        }
-                    }
-
-                    var parent = presenter.Parent;
-                    if (parent != null)
-                    {
-                        parent._children.Remove(presenter);
-                        presenter.Parent = null;
-                    }
-                });
-
-                context.Inject(presenter);
-                presenter.OnInitialize();
+                Attach(this, lifetime.DefineNested(nameof(Root)), factory);
             }
         }
     }
@@ -350,11 +382,18 @@ namespace OpenUGD.Presenters
     /// </para>
     /// <list type="bullet">
     /// <item><description> <see cref="OnViewAdded"/> runs <b>once per attached view</b>. Wiring: subscribe to
-    /// buttons, cache child references, register clean-up. It must not depend on the model.
-    /// </description></item> <item><description> <see cref="OnRefresh"/> runs <b>every time the presenter
-    /// could look different</b> — after a view attaches and after every model change — and must be
-    /// idempotent. Rendering, and only rendering. </description></item>
+    /// the view's events, cache child references, and register the matching clean-up on
+    /// <see cref="ViewLifetime"/>. It must not depend on the model. </description></item>
+    /// <item><description> <see cref="OnRefresh"/> runs <b>every time the presenter could look different</b> —
+    /// after a view attaches and after every model change — and must be idempotent. Rendering, and only
+    /// rendering. </description></item>
     /// </list>
+    /// <para>
+    /// <b>Two scopes.</b> <see cref="Presenter.Lifetime"/> is the presenter's; <see cref="ViewLifetime"/> is the
+    /// current view's, nested in it. A listener added to a view in <see cref="OnViewAdded"/> belongs to the view
+    /// scope: registered on <see cref="Presenter.Lifetime"/> instead, it would outlive the view when the view is
+    /// replaced or detached, and a re-attached view would be subscribed twice.
+    /// </para>
     /// <para>
     /// <b>Why <c>OnReady</c> was deleted.</b> It was two mechanisms that disagreed. A child added through
     /// <see cref="Presenter.AddPresenter{T}"/> got a latch that waited for both a view and a model; a
@@ -369,13 +408,15 @@ namespace OpenUGD.Presenters
     /// <para>
     /// <b><see cref="OnRefresh"/> only ever runs while this presenter is live</b> — a view is attached and
     /// the presenter's own scope has not ended — which is why a presenter body needs no <c>View != null</c>
-    /// guard. It holds because whoever creates a view must tie the presenter's <see cref="Lifetime"/> to that
-    /// view's destruction, so a live presenter always has a live view.
+    /// guard. It holds because whoever creates a view must tie the presenter's <see cref="Presenter.Lifetime"/>
+    /// to that view's destruction, so a live presenter always has a live view.
     /// </para>
     /// </remarks>
     public abstract class Presenter<TView> : Presenter, IPresenterWithView
         where TView : class
     {
+        private Lifetime.Definition _viewDefinition;
+
         /// <summary>
         /// The attached view, or <c>null</c>. Inside <see cref="OnViewAdded"/> and <see cref="OnRefresh"/> it
         /// is never <c>null</c>.
@@ -383,12 +424,42 @@ namespace OpenUGD.Presenters
         public TView View { get; private set; }
 
         /// <summary>
+        /// The scope of the current view: defined just before <see cref="OnViewAdded"/> and terminated just
+        /// before that view is detached or replaced, while <see cref="View"/> still holds it. The place to
+        /// register the clean-up of whatever <see cref="OnViewAdded"/> wired to the view.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Nested in <see cref="Presenter.Lifetime"/>, so it also ends when the presenter closes, before
+        /// <see cref="Presenter.OnClose"/>. Each attached view gets a fresh one, so a view that is detached and
+        /// attached again is wired exactly once each time.
+        /// </para>
+        /// <code>
+        /// protected override void OnViewAdded()
+        /// {
+        ///     var button = View;
+        ///     button.onClick.AddListener(OnClick);
+        ///     ViewLifetime.AddAction(() => button.onClick.RemoveListener(OnClick));
+        /// }
+        /// </code>
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">No view has been attached yet, or the view was
+        /// detached.</exception>
+        protected Lifetime ViewLifetime =>
+            _viewDefinition != null
+                ? _viewDefinition.Lifetime
+                : throw new InvalidOperationException(
+                    $"{GetType().Name} has no view attached, so it has no ViewLifetime. It exists from just " +
+                    "before OnViewAdded until the view is detached or replaced: read it in OnViewAdded or " +
+                    "OnRefresh.");
+
+        /// <summary>
         /// True while this presenter's own scope is alive and a view is attached. <see cref="OnRefresh"/> is
         /// skipped when this is <c>false</c>, so a presenter body never needs its own guard.
         /// </summary>
         /// <remarks>
         /// The view's own liveness is deliberately NOT consulted. The invariant is that whoever creates a
-        /// view ties this presenter's <see cref="Lifetime"/> to that view's destruction —
+        /// view ties this presenter's <see cref="Presenter.Lifetime"/> to that view's destruction —
         /// <c>ViewBehaviour</c> terminates its scope in <c>OnDestroy</c>, and a borrowed scene view is
         /// bridged by <c>SignalMonoBehaviour.DestroySignal</c> — so a live presenter always has a live view.
         /// Asking the view type itself was tried and abandoned: it cannot work for views we do not own, such
@@ -405,9 +476,15 @@ namespace OpenUGD.Presenters
         /// </summary>
         /// <remarks>
         /// <para>
-        /// Setting the view it already has does nothing. Otherwise, in order: the old view is detached and
-        /// <see cref="OnViewAfterRemoved"/> runs if there was one; the new view is stored;
-        /// <see cref="OnViewAdded"/> runs if it is non-<c>null</c>; then <see cref="Refresh"/>.
+        /// Setting the view it already has does nothing. Otherwise, in order: if there was a view,
+        /// <see cref="ViewLifetime"/> terminates (with <see cref="View"/> still set), the view is detached and
+        /// <see cref="OnViewAfterRemoved"/> runs; the new view is stored; if it is non-<c>null</c>, a fresh
+        /// <see cref="ViewLifetime"/> is defined and <see cref="OnViewAdded"/> runs; then <see cref="Refresh"/>.
+        /// </para>
+        /// <para>
+        /// If clean-up registered on the old <see cref="ViewLifetime"/> throws, the old view is still detached,
+        /// and the exception propagates before <see cref="OnViewAfterRemoved"/> and before the new view is
+        /// stored.
         /// </para>
         /// <para>
         /// <i>Changed in 2.0.0</i> — <c>OnViewAfterRemoved</c> no longer fires on the first attach, when
@@ -421,7 +498,17 @@ namespace OpenUGD.Presenters
 
             if (View != null)
             {
-                View = null;
+                var definition = _viewDefinition;
+                _viewDefinition = null;
+                try
+                {
+                    definition?.Terminate();
+                }
+                finally
+                {
+                    View = null;
+                }
+
                 OnViewAfterRemoved();
             }
 
@@ -429,6 +516,7 @@ namespace OpenUGD.Presenters
 
             if (view != null)
             {
+                _viewDefinition = Lifetime.DefineNested(nameof(View));
                 OnViewAdded();
             }
 
@@ -452,8 +540,9 @@ namespace OpenUGD.Presenters
         }
 
         /// <summary>
-        /// Called once each time a view is attached, with <see cref="View"/> already set. Wiring goes here:
-        /// subscriptions, listeners, clean-up registered on <see cref="Presenter.Lifetime"/>.
+        /// Called once each time a view is attached, with <see cref="View"/> and a fresh
+        /// <see cref="ViewLifetime"/> already set. Wiring goes here: listeners and subscriptions on the view,
+        /// each with its clean-up registered on <see cref="ViewLifetime"/>.
         /// </summary>
         /// <remarks>
         /// Do not render here — <see cref="OnRefresh"/> runs immediately afterwards and again on every model
@@ -464,9 +553,9 @@ namespace OpenUGD.Presenters
         }
 
         /// <summary>
-        /// Called once each time a view is detached, with <see cref="View"/> already <c>null</c>. The view
-        /// being replaced may already be destroyed, so release things the presenter owns, not things on the
-        /// view.
+        /// Called once each time a view is detached, with <see cref="View"/> already <c>null</c> and the view's
+        /// <see cref="ViewLifetime"/> already terminated. The view being replaced may already be destroyed, so
+        /// release things the presenter owns, not things on the view.
         /// </summary>
         protected virtual void OnViewAfterRemoved()
         {

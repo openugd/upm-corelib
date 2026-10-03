@@ -4,7 +4,8 @@
     "references": [
         "com.openugd.lifetime",
         "com.openugd.signal",
-        "com.openugd.context"
+        "com.openugd.context",
+        "com.openugd.presenters"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

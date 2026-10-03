@@ -135,8 +135,8 @@ The package holds five runtime assemblies, one per concern, each named as if it 
 
 | Assembly | What it holds | References | UnityEngine |
 | --- | --- | --- | --- |
-| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, the coroutine and `SynchronizationContext` seams. | lifetime, signal, context | yes; no uGUI |
-| `com.openugd.presenters` | The presenter tree. | lifetime, context | no |
+| `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, the coroutine and `SynchronizationContext` seams, and `ContextPresenterFactory`, which adapts presenters to the context. | lifetime, signal, context, presenters | yes; no uGUI |
+| `com.openugd.presenters` | The presenter tree and `IPresenterFactory`. | lifetime | no |
 | `com.openugd.commands` | The command map. | lifetime, context | no |
 | `com.openugd.logging` | Tagged logging and its sink interface. | nothing | no |
 | `com.openugd.logging.unity` | The Unity console sink. | logging, lifetime | yes |
@@ -144,7 +144,9 @@ The package holds five runtime assemblies, one per concern, each named as if it 
 
 "No" means the assembly definition sets `noEngineReferences`, so the compiler rejects any use of
 UnityEngine there and the code runs in a plain .NET test. None of the five references another, except the
-console sink, which extends logging.
+console sink, which extends logging, and the Unity boundary, which adapts presenters to the context. The
+presenters assembly does not reference the context: a presenter tree gets its presenters built and injected
+through an `IPresenterFactory` — see [Presenters](#presenters).
 
 All of them are auto-referenced, so scripts in `Assembly-CSharp` see every type below. An assembly
 definition of your own lists the assemblies it uses by name: `com.openugd.presenters` for a presenter,
@@ -164,7 +166,9 @@ This is the whole public surface of the package.
 | `ICoroutineProvider`, `CoroutineProvider` | `com.openugd.corelib` | `OpenUGD.Utils` | Coroutines behind an interface a test can replace. |
 | `ISynchronizationContext`, `SynchronizationContextWrapper` | `com.openugd.corelib` | `OpenUGD.Utils` | Thread marshalling behind an interface a test can replace. |
 | `SignalMonoBehaviour` | `com.openugd.corelib` | `OpenUGD.Utils.Components` | A GameObject's `Start`, `OnEnable`, `OnDisable` and `OnDestroy` as signals. |
-| `Presenter`, `Presenter.Root`, `Presenter<TView>`, `Presenter<TView, TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | Hierarchical view composition with per-presenter lifetimes. |
+| `Presenter`, `Presenter.Root`, `Presenter<TView>`, `Presenter<TView, TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | Hierarchical view composition with per-presenter lifetimes, and a per-view `ViewLifetime`. `Presenter.Attach` roots a presenter on a scope of the caller's. |
+| `IPresenterFactory` | `com.openugd.presenters` | `OpenUGD.Presenters` | How a tree has its presenters built (`Create`) and injected (`Inject`), without knowing the container. |
+| `ContextPresenterFactory` | `com.openugd.corelib` | `OpenUGD.Presenters` | The `IPresenterFactory` over `OpenUGD.Context`. |
 | `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>` | `com.openugd.presenters` | `OpenUGD.Presenters` | The untyped faces through which code that knows a presenter only as a `Presenter` hands it a view and a model. |
 | `PresenterExtensions` | `com.openugd.presenters` | `OpenUGD.Presenters` | `GetViewType`, the view type a presenter expects; `GetChildren`, a snapshot of its children, optionally recursive and filtered by type. |
 | `ICommand`, `IMessage`, `ICommandMapper`, `ICommandMapperRemove`, `IMapCommand`, `ITellMessage`, `CommandMap`, `CommandMapper`, `CommandMapperExtensions` | `com.openugd.commands` | `OpenUGD.Commands` | Maps message types to command types; each command is built by the `Context`. |
@@ -174,6 +178,98 @@ This is the whole public surface of the package.
 
 Composition itself lives in [`com.openugd.context`](https://github.com/openugd/upm-context): `Context`,
 `ContextBuilder`, `ServiceCollection`, `[Inject]`. CoreLib is the Unity boundary around it.
+
+## Presenters
+
+A presenter is handed a view and a model and renders one from the other. Presenters form a tree: each one
+has a `Lifetime` nested in its parent's, so closing a presenter closes everything under it. The tree is
+rooted on a `Lifetime` with an `IPresenterFactory`, which injects every presenter attached to it — with
+`com.openugd.context`, that is `ContextPresenterFactory`, and `[Inject]` members of a presenter created with
+`new` are filled in before its `OnInitialize`.
+
+```csharp
+using OpenUGD;
+using OpenUGD.Logging;
+using OpenUGD.Presenters;
+using UnityEngine;
+using UnityEngine.Events;
+
+public class ScoreView : ViewBehaviour
+{
+    public UnityEvent ResetClicked = new UnityEvent();
+    public TextMesh Label;
+}
+
+public class ScorePresenter : Presenter<ScoreView, int>
+{
+    [Inject(Optional = true)] private ILog _log;
+
+    // Once per attached view: wire it, and register the unwiring on the view's own scope.
+    protected override void OnViewAdded()
+    {
+        var view = View;
+        view.ResetClicked.AddListener(OnReset);
+        ViewLifetime.AddAction(() => view.ResetClicked.RemoveListener(OnReset));
+    }
+
+    // After every view attach and model change, only while live. Idempotent.
+    protected override void OnRefresh() => View.Label.text = Model.ToString();
+
+    private void OnReset()
+    {
+        _log?.I("score reset");
+        SetModel(0);
+    }
+}
+
+public static class ScoreScreen
+{
+    public static ScorePresenter Open(Lifetime lifetime, Context context, ScoreView view)
+    {
+        var root = new Presenter.Root(lifetime, new ContextPresenterFactory(context));
+        var score = root.AddPresenter(new ScorePresenter());
+        score.SetModel(42);
+        score.SetView(view);
+        return score;
+    }
+}
+```
+
+`OnViewAdded` wires a view and `OnRefresh` renders it. `ViewLifetime` is the scope of the current view: it
+ends just before that view is detached or replaced, and when the presenter closes, so a listener registered
+on it never outlives its view and a re-attached view is wired exactly once.
+
+**Hosts.** Code that owns the scope a presenter lives in — a window service, say — roots each presenter on a
+scope of its own with `Presenter.Attach(presenter, definition, factory)`, then calls `SetModel` and
+`SetView`. `IPresenterFactory.Create(type)` builds a presenter it knows only by type. Both are public, so a
+host in another assembly needs no `InternalsVisibleTo`.
+
+**Another container.** `IPresenterFactory` has two members, so an adapter is short. A sketch for
+VContainer, not compiled or tested here; note that VContainer injects members marked with its own
+`[Inject]`, not with OpenUGD's:
+
+<!-- upm-tools: no-compile — VContainer is not a dependency of this package -->
+```csharp
+using System;
+using OpenUGD.Presenters;
+using VContainer;
+
+public sealed class VContainerPresenterFactory : IPresenterFactory
+{
+    private readonly IObjectResolver _resolver;
+
+    public VContainerPresenterFactory(IObjectResolver resolver) => _resolver = resolver;
+
+    public Presenter Create(Type presenterType)
+    {
+        var presenter = (Presenter)Activator.CreateInstance(presenterType);
+        _resolver.Inject(presenter);
+        return presenter;
+    }
+
+    public void Inject(Presenter presenter) => _resolver.Inject(presenter);
+}
+```
 
 ## Commands and managed code stripping
 

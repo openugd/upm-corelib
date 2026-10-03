@@ -52,7 +52,8 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 - **Breaking: `com.openugd.dependency.injection` is no longer a dependency.** It is removed from
   `package.json` and from the runtime asmdef. Nothing in corelib references `IInjector`, `IInject`,
   `IResolve`, `OpenUGD.Resolvers` or `OpenUGD.Descriptions` any more. If your code obtained an injector
-  *through* a corelib type, take a `Context` instead.
+  *through* a corelib type, take a `Context` instead; a presenter, which implemented `IResolve` and `IInject`
+  in 0.6.1, takes an `[Inject]` member instead (see *Changed*).
 - **Breaking: the whole composition layer.** `Runtime/Core/ContextBuilder/` in its entirety —
   `IContextSetup`, `IContextServiceSetup`, `IContextBuilder`/`IContextServiceBuilder`,
   `ContextServiceBuilder`, `ContextServiceRegisterImpl`, `IServiceRegister`, `IServiceResolver`,
@@ -161,19 +162,39 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   `Context` is built. Before 2.0.0 a context that failed to start looked identical in the inspector to
   one that started fine.
 - `Presenter<TView>.OnRefresh()` and `Presenter<TView>.Refresh()` — see *Presenters*.
-- `Presenter.Context`, so a presenter can reach the container it was injected from.
+- `IPresenterFactory` (`com.openugd.presenters`): how a presenter tree has its presenters built and
+  injected, in two members — `Presenter Create(Type presenterType)` for code that knows a presenter only by
+  its type, and `void Inject(Presenter presenter)`, which the tree calls once for every presenter it
+  attaches, before `OnInitialize`, so a presenter created with `new` still gets its injected members.
+  `Create`'s parameter carries `[DynamicallyAccessedMembers]` for constructors, so a presenter type written at
+  the call site survives IL2CPP stripping.
+- `ContextPresenterFactory` (`com.openugd.corelib`, namespace `OpenUGD.Presenters`): the
+  `IPresenterFactory` over `OpenUGD.Context` — `Context.Instantiate` and `Context.Inject`. `[Inject]` and
+  `[Inject(Optional = true)]` members of presenters attached under a tree rooted with it are filled in
+  exactly as before. It can also be registered:
+  `builder.Services.Add<ContextPresenterFactory>().As<IPresenterFactory>()`.
+- `Presenter.Attach(Presenter presenter, Lifetime.Definition definition, IPresenterFactory factory)`: the
+  public attach. It replaces the internal `Presenter.Internal.Initialize`, so a presenter-opening service
+  in another assembly can root a presenter on a scope of its own and drive the
+  `Attach` → `SetModel` → `SetView` open sequence with no `InternalsVisibleTo`. The presenter takes the
+  definition over: `Close` terminates it, and terminating it closes the presenter.
+- `Presenter<TView>.ViewLifetime`: one scope per attached view, nested in the presenter's `Lifetime`,
+  defined just before `OnViewAdded` and terminated just before that view is detached or replaced (with
+  `View` still set), and when the presenter closes. Wire the view's listeners in `OnViewAdded` and register
+  their removal on it. Registered on the presenter's `Lifetime` instead, as 0.6.1 code did, a listener
+  outlives a replaced view and a re-attached view is subscribed twice (audit WG-4, CC-10).
 - `PresenterExtensions.GetChildren(...)` — the two `Presenter.GetChildren` instance methods became
   extension methods. Call sites are unchanged as long as `OpenUGD.Presenters` is imported.
 - `CommandMapperExtensions.RegisterCommand<TCommand>()` and `IMapCommand.Map<TMessage, TCommand>()`.
 - `ServiceCollection.AddCommandMap()` — `TryAdd`-shaped, so a consumer registration always wins.
-- `InternalsVisibleTo("com.openugd.presenters.tests")` on `com.openugd.presenters`, so its tests can
-  drive `Presenter.Internal`, the attach sequence a presenter-opening service uses.
-- Edit Mode test suites, one per tested assembly, each referencing only what it tests:
-  `com.openugd.presenters.tests` (47 tests over the presenter tree, the two hooks, the deleted surface and
-  the presenter open sequence), `com.openugd.commands.tests` (10 tests over the command mapper and its
+- Test suites, one per tested assembly, each referencing only what it tests. Three are Edit Mode suites
+  that need no Unity runtime, and each checks that its assembly uses no Unity assembly:
+  `com.openugd.presenters.tests` (61 tests over the presenter tree built with a hand-written
+  `IPresenterFactory`, the two hooks, `ViewLifetime`, `Attach`, the deleted surface and the presenter open
+  sequence, all through public API), `com.openugd.commands.tests` (10 tests over the command mapper and its
   stripping annotations) and `com.openugd.logging.tests` (14 tests over tag paths, the two filters, sink
-  fan-out and teardown). Each suite also checks that its assembly uses no Unity assembly. None of them
-  needs a Unity runtime. The Unity boundary, `com.openugd.corelib`, has no tests yet.
+  fan-out and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity
+  boundary; its 7 tests over `ContextPresenterFactory` need no Unity runtime.
 
 ### Changed
 
@@ -182,8 +203,8 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
 
   | Assembly | Contents | References | UnityEngine |
   | --- | --- | --- | --- |
-  | `com.openugd.corelib` | the Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `ICoroutineProvider`/`CoroutineProvider`, `ISynchronizationContext`/`SynchronizationContextWrapper` | lifetime, signal, context | yes, no uGUI |
-  | `com.openugd.presenters` | `Presenter` and its interfaces, `PresenterExtensions` | lifetime, context | no |
+  | `com.openugd.corelib` | the Unity boundary: `ContextBehaviour`, `ViewBehaviour`, `SignalMonoBehaviour`, `ICoroutineProvider`/`CoroutineProvider`, `ISynchronizationContext`/`SynchronizationContextWrapper`, and `ContextPresenterFactory`, which adapts presenters to the context | lifetime, signal, context, presenters | yes, no uGUI |
+  | `com.openugd.presenters` | `Presenter` and its interfaces, `IPresenterFactory`, `PresenterExtensions` | lifetime | no |
   | `com.openugd.commands` | the command map, mappers and `AddCommandMap` | lifetime, context | no |
   | `com.openugd.logging` | `ILog`, `ILogSink`, `LogFlags`, `LogRoot` | nothing | no |
   | `com.openugd.logging.unity` | `UnityLogSink`, `UseUnityConsole` | logging, lifetime | yes |
@@ -245,9 +266,14 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   test double impossible. Liveness is a property of the presenter's own scope instead. Whoever creates
   a view ties the presenter's `Lifetime` to that view's destruction — `ViewBehaviour` terminates in
   `OnDestroy` — and `Refresh()` is skipped once the lifetime has ended.
-- **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, Context)`.**
-- **Breaking: `Presenter.Internal.Initialize` takes a `Context`, has no `beforeInitialization` parameter,
-  and throws if the lifetime it is handed has already terminated.**
+- **Breaking: `Widget.Root(Lifetime, IInjector)` is now `Presenter.Root(Lifetime, IPresenterFactory)`.**
+  Migration: `new Presenter.Root(lifetime, new ContextPresenterFactory(context))`.
+- **Breaking: presenters reference no container.** `com.openugd.presenters` references
+  `com.openugd.lifetime` and nothing else from the family; construction and injection go through the
+  `IPresenterFactory` a tree is rooted with, and there is no property through which a presenter reaches its
+  container (0.6.1's `IResolve`/`IInject` on `Widget` are gone, see *Removed*). Migration: a presenter that
+  resolved a service from its tree takes it as an `[Inject]` member — `[Inject(Optional = true)]` if the
+  service may be absent — which `ContextPresenterFactory` fills in before `OnInitialize`.
 - **Breaking: `Presenter.Close()` and `Dispose()` close every presenter in the subtree even when clean-up
   throws, then report the failures as `Lifetime` 2.0.0 does: one failure as itself, with its stack trace,
   two or more as one `AggregateException`.** In 0.6.1 the first failure stopped the rest of the teardown, so the

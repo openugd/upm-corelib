@@ -2,29 +2,27 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 using NUnit.Framework;
 
 namespace OpenUGD.Presenters.Tests
 {
-    // Specification source: ROADMAP-v2.md section 4.2 ("Presenters: OnReady is deleted").
+    // Specification source: ROADMAP-v2.md section 4.2 ("Presenters: OnReady is deleted"), and the stage-5 seams
+    // of decision 7 (public Attach, IPresenterFactory, a view-scoped lifetime).
     //
     // The contract under test:
     //   OnViewAdded()  fires exactly once, when a view attaches. Never again for the same view.
     //                  A replacement view attaches, so it fires again for that view.
     //   OnRefresh()    idempotent. Fires after the view attaches, and on every model change.
     //                  Never fires while the view is absent, or while the view is not alive.
+    //   ViewLifetime   one scope per attached view, ended before that view is detached or replaced.
     //   Liveness is a property of the presenter's own scope, not of the view type, so the whole suite
     //   runs headless with a fake view and no Unity runtime.
+    //   No container: every tree is rooted with a hand-written IPresenterFactory (RecordingFactory), and the
+    //   presenters assembly references nothing from the family but lifetime. Injection through
+    //   OpenUGD.Context is ContextPresenterFactory's, tested with the Unity boundary in com.openugd.corelib.
     //   Deleted for good: OnReady, Presenter.Internal.Ready, ISubscribeNotify,
-    //   IPresenterWithModel.ModelChanged, OnAfterModelChanged. The reflection fixture at the bottom
-    //   fails loudly if any of them is reintroduced.
-    //
-    // Written blind against the specification, then reconciled against the integrated package.
-    // The one assumption that did not survive: Presenter.Root takes (Lifetime, Context), not a bare
-    // Lifetime - a root with no Context cannot inject the tree. CreateRoot is the only line that
-    // changed, exactly as the blind author predicted.
+    //   IPresenterWithModel.ModelChanged, OnAfterModelChanged, Presenter.Context. The reflection fixture at the
+    //   bottom fails loudly if any of them is reintroduced.
     [TestFixture]
     public class PresenterTests
     {
@@ -35,17 +33,13 @@ namespace OpenUGD.Presenters.Tests
                                                      | BindingFlags.DeclaredOnly;
 
         private List<Lifetime.Definition> _definitions;
-        private Context _context;
+        private RecordingFactory _factory;
 
         [SetUp]
         public void SetUp()
         {
             _definitions = new List<Lifetime.Definition>();
-            _context = RunSync(() => {
-                var builder = Context.CreateBuilder(NewDefinition().Lifetime);
-                builder.Services.AddInstance<IProbe>(new Probe());
-                return builder.BuildAsync();
-            });
+            _factory = new RecordingFactory();
         }
 
         [TearDown]
@@ -64,7 +58,7 @@ namespace OpenUGD.Presenters.Tests
             }
 
             _definitions.Clear();
-            _context = null;
+            _factory = null;
         }
 
         // ------------------------------------------------------------------ OnViewAdded
@@ -291,6 +285,114 @@ namespace OpenUGD.Presenters.Tests
             Assert.AreEqual(2, presenter.ViewAddedCount);
             Assert.AreEqual(3, presenter.RefreshCount);
             Assert.AreEqual("a", replacement.Rendered, "the replacement view renders the current model");
+        }
+
+        // ------------------------------------------------------------------ ViewLifetime
+
+        [Test]
+        public void ViewLifetime_IsAliveInOnViewAdded_AndNestedInThePresentersLifetime()
+        {
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+            var view = new WiredView();
+
+            presenter.SetView(view);
+
+            Assert.IsNotNull(presenter.LastViewLifetime);
+            Assert.IsFalse(presenter.LastViewLifetime.IsTerminated);
+            Assert.AreEqual(1, view.Listeners);
+
+            presenter.Close();
+
+            Assert.IsTrue(presenter.LastViewLifetime.IsTerminated, "the view scope ends with the presenter");
+            Assert.AreEqual(0, view.Listeners);
+        }
+
+        [Test]
+        public void ViewLifetime_EndsBeforeTheViewIsReplaced_WhileViewStillHoldsTheOldView()
+        {
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+            var first = new WiredView();
+            var second = new WiredView();
+            presenter.SetView(first);
+            var firstScope = presenter.LastViewLifetime;
+
+            presenter.SetView(second);
+
+            Assert.IsTrue(firstScope.IsTerminated);
+            Assert.AreEqual(0, first.Listeners, "the replaced view must be unwired");
+            Assert.AreEqual(1, second.Listeners);
+            Assert.AreNotSame(firstScope, presenter.LastViewLifetime, "each view gets a scope of its own");
+            CollectionAssert.AreEqual(
+                new[] { "view-scope-ended, View is still the old view", "view-removed" },
+                presenter.Log,
+                "the view scope ends first, with View still set, and only then is the view detached");
+        }
+
+        [Test]
+        public void ViewLifetime_EndsWhenTheViewIsDetached_AndThenThereIsNone()
+        {
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+            var view = new WiredView();
+            presenter.SetView(view);
+            var scope = presenter.LastViewLifetime;
+
+            presenter.SetView(null);
+
+            Assert.IsTrue(scope.IsTerminated);
+            Assert.AreEqual(0, view.Listeners);
+            Assert.Throws<InvalidOperationException>(() => presenter.ReadViewLifetime(),
+                "with no view attached there is no view scope to register on");
+        }
+
+        [Test]
+        public void ViewLifetime_ReattachingTheSameView_WiresItExactlyOnce()
+        {
+            // The defect it replaces: listeners registered on the presenter's Lifetime survived a detach, so a
+            // re-attached view was subscribed twice.
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+            var view = new WiredView();
+
+            presenter.SetView(view);
+            presenter.SetView(null);
+            presenter.SetView(view);
+
+            Assert.AreEqual(1, view.Listeners);
+        }
+
+        [Test]
+        public void ViewLifetime_EndsBeforeOnClose_WhenThePresenterCloses()
+        {
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+            presenter.SetView(new WiredView());
+
+            presenter.Close();
+
+            CollectionAssert.AreEqual(new[] { "view-scope-ended, View is still the old view", "close" }, presenter.Log);
+        }
+
+        [Test]
+        public void ViewLifetime_BeforeAnyView_Throws()
+        {
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+
+            Assert.Throws<InvalidOperationException>(() => presenter.ReadViewLifetime());
+        }
+
+        [Test]
+        public void ViewLifetime_WhenItsCleanUpThrows_TheOldViewIsStillDetached_AndTheNewOneIsNotStored()
+        {
+            var presenter = CreateRoot().AddPresenter(new WiringPresenter());
+            var failure = new InvalidOperationException("listener removal failed");
+            presenter.WhenViewAdded = p => p.ReadViewLifetime().AddAction(() => throw failure);
+            presenter.SetView(new WiredView());
+            presenter.WhenViewAdded = null;
+
+            var thrown = Assert.Throws<InvalidOperationException>(() => presenter.SetView(new WiredView()));
+
+            Assert.AreSame(failure, thrown);
+            Assert.IsNull(presenter.View, "the old view is detached even though its clean-up failed");
+            CollectionAssert.DoesNotContain(presenter.Log, "view-removed",
+                "the exception propagates before OnViewAfterRemoved");
         }
 
         // ------------------------------------------------------------------ the tree
@@ -570,53 +672,161 @@ namespace OpenUGD.Presenters.Tests
         // ------------------------------------------------------------------ attachment
 
         [Test]
-        public void Attach_InjectsFromTheContextAndExposesIt()
-        {
-            var presenter = CreateRoot().AddPresenter(new InjectedPresenter());
-
-            Assert.AreSame(_context, presenter.Context);
-            Assert.IsNotNull(presenter.Probe, "Presenter.Internal.Initialize must inject from the Context");
-            Assert.AreSame(_context.Resolve<IProbe>(), presenter.Probe);
-        }
-
-        [Test]
-        public void Attach_LeavesAnUnresolvableOptionalMemberAlone()
-        {
-            // What TextPresenter/TMPPresenter rely on: a project with no localisation registered must still be
-            // able to build its presenter tree.
-            var presenter = CreateRoot().AddPresenter(new OptionallyInjectedPresenter());
-
-            Assert.IsNull(presenter.Missing);
-            Assert.AreSame(_context.Resolve<IProbe>(), presenter.Probe,
-                "An optional member whose contract IS registered must still be injected.");
-        }
-
-        [Test]
-        public void Attach_InjectsOptionalMembersBeforeOnInitialize()
-        {
-            // The ordering the widgets' TextPresenter depends on: it subscribes to an optional injected service
-            // from inside OnInitialize, so the field must already hold its value by then.
-            var presenter = CreateRoot().AddPresenter(new OptionallyInjectedPresenter());
-
-            Assert.AreSame(presenter.Probe, presenter.ProbeSeenDuringInitialize,
-                "Presenter.Internal.Initialize must inject before it calls OnInitialize");
-        }
-
-        [Test]
-        public void Attach_WithAnUnresolvableRequiredMember_ThrowsInsteadOfLeavingItNull()
+        public void Attach_InjectsThroughTheFactory_OnceAndBeforeOnInitialize()
         {
             var root = CreateRoot();
+            var presenter = new InitializeProbe(_factory);
 
-            Assert.Throws<ContextException>(() => root.AddPresenter(new RequiredMissingPresenter()));
+            root.AddPresenter(presenter);
+
+            Assert.AreEqual(1, _factory.Injected.Count(p => p == presenter), "one Inject per attached presenter");
+            Assert.IsTrue(presenter.WasInjectedBeforeInitialize,
+                "the factory must inject before OnInitialize, which may already use what was injected");
         }
 
         [Test]
-        public void ReadingLifetimeOrContextBeforeAttach_ThrowsInsteadOfReturningNull()
+        public void Attach_HasTheLifetimeInPlace_WhenTheFactoryInjects()
+        {
+            Lifetime seen = null;
+            _factory.OnInject = presenter => seen = presenter.Lifetime;
+
+            var child = CreateRoot().AddPresenter(new TreePresenter("c", new List<string>()));
+
+            Assert.AreSame(child.Lifetime, seen);
+        }
+
+        [Test]
+        public void AddPresenter_InjectsEveryDescendant_WithTheFactoryTheTreeWasRootedWith()
+        {
+            var root = CreateRoot();
+            var child = root.AddPresenter(new TreePresenter("c", new List<string>()));
+            var grandChild = child.AddPresenter(new TreePresenter("g", new List<string>()));
+
+            CollectionAssert.AreEqual(new Presenter[] { root, child, grandChild }, _factory.Injected);
+        }
+
+        [Test]
+        public void TheTree_NeverCallsCreate()
+        {
+            var root = CreateRoot();
+            root.AddPresenter(new ViewPresenter()).SetView(new FakeView());
+            root.Close();
+
+            CollectionAssert.IsEmpty(_factory.Created, "Create is for hosts that know a presenter only by its type");
+        }
+
+        [Test]
+        public void Attach_IsPublic_AndRootsAPresenterOnTheCallersScope()
+        {
+            var definition = NewDefinition();
+            var presenter = new ParentProbe();
+
+            Presenter.Attach(presenter, definition, _factory);
+
+            Assert.AreSame(definition.Lifetime, presenter.Lifetime);
+            Assert.IsNull(presenter.ParentSeen, "a presenter attached with Attach belongs to no parent");
+            CollectionAssert.AreEqual(new Presenter[] { presenter }, _factory.Injected);
+        }
+
+        [Test]
+        public void Attach_TheDefinitionAndThePresenterEndTogether()
+        {
+            var first = NewDefinition();
+            var closedByDefinition = new TreePresenter("a", new List<string>());
+            Presenter.Attach(closedByDefinition, first, _factory);
+            var second = NewDefinition();
+            var closedByClose = new TreePresenter("b", new List<string>());
+            Presenter.Attach(closedByClose, second, _factory);
+
+            first.Terminate();
+            closedByClose.Close();
+
+            CollectionAssert.AreEqual(new[] { "a:initialize", "a:close" }, closedByDefinition.Log);
+            Assert.IsTrue(second.IsTerminated, "Close terminates the definition the presenter was given");
+        }
+
+        [Test]
+        public void Attach_ChildrenOfAnAttachedPresenter_AreInjectedByItsFactory()
+        {
+            var other = new RecordingFactory();
+            var presenter = new TreePresenter("p", new List<string>());
+            Presenter.Attach(presenter, NewDefinition(), other);
+
+            var child = presenter.AddPresenter(new TreePresenter("c", new List<string>()));
+
+            CollectionAssert.AreEqual(new Presenter[] { presenter, child }, other.Injected);
+            CollectionAssert.IsEmpty(_factory.Injected);
+        }
+
+        [Test]
+        public void Attach_RejectsNullArguments()
+        {
+            var presenter = new TreePresenter("p", new List<string>());
+
+            Assert.Throws<ArgumentNullException>(() => Presenter.Attach(null, NewDefinition(), _factory));
+            Assert.Throws<ArgumentNullException>(() => Presenter.Attach(presenter, null, _factory));
+            Assert.Throws<ArgumentNullException>(() => Presenter.Attach(presenter, NewDefinition(), null));
+            Assert.Throws<ArgumentNullException>(() => new Presenter.Root(NewDefinition().Lifetime, null));
+            Assert.Throws<ArgumentNullException>(() => new Presenter.Root(null, _factory));
+            CollectionAssert.IsEmpty(_factory.Injected, "a rejected attach must not reach the factory");
+        }
+
+        [Test]
+        public void Attach_ToATerminatedDefinition_Throws_AndInjectsNothing()
+        {
+            var definition = NewDefinition();
+            definition.Terminate();
+            var presenter = new TreePresenter("p", new List<string>());
+
+            Assert.Throws<InvalidOperationException>(() => Presenter.Attach(presenter, definition, _factory),
+                "a host must check IsTerminated before attaching, and skip the whole open, for this reason");
+            CollectionAssert.IsEmpty(presenter.Log, "OnInitialize must not run");
+            CollectionAssert.IsEmpty(_factory.Injected);
+        }
+
+        [Test]
+        public void Attach_APresenterAttachedThroughAddPresenter_CannotBeAttachedAgain()
+        {
+            var child = CreateRoot().AddPresenter(new TreePresenter("c", new List<string>()));
+
+            Assert.Throws<InvalidOperationException>(() => Presenter.Attach(child, NewDefinition(), _factory));
+        }
+
+        [Test]
+        public void Attach_AnExceptionFromTheFactory_ReachesTheCaller()
+        {
+            var failure = new InvalidOperationException("cannot inject");
+            _factory.OnInject = _ => throw failure;
+            var presenter = new TreePresenter("p", new List<string>());
+
+            var thrown = Assert.Throws<InvalidOperationException>(
+                () => Presenter.Attach(presenter, NewDefinition(), _factory));
+
+            Assert.AreSame(failure, thrown);
+            CollectionAssert.IsEmpty(presenter.Log, "OnInitialize must not run when injection failed");
+        }
+
+        [Test]
+        public void ReadingLifetimeBeforeAttach_ThrowsInsteadOfReturningNull()
         {
             var presenter = new TreePresenter("x", new List<string>());
 
             Assert.Throws<InvalidOperationException>(() => { var _ = presenter.Lifetime; });
-            Assert.Throws<InvalidOperationException>(() => { var _ = presenter.Context; });
+            Assert.Throws<InvalidOperationException>(presenter.Close);
+        }
+
+        [Test]
+        public void Presenter_ExposesNoContainer()
+        {
+            var members = new[] { typeof(Presenter), typeof(Presenter<>), typeof(Presenter<,>) }
+                .SelectMany(type => type.GetMembers(BindingFlags.Public | BindingFlags.NonPublic |
+                                                    BindingFlags.Instance | BindingFlags.Static))
+                .Where(member => member.Name == "Context" || member.Name == "Factory")
+                .Select(member => member.DeclaringType + "." + member.Name)
+                .ToList();
+
+            CollectionAssert.IsEmpty(members,
+                "a presenter reaches a service through an injected member; the container stays outside the tree");
         }
 
         [Test]
@@ -677,33 +887,7 @@ namespace OpenUGD.Presenters.Tests
         private Presenter CreateRoot() => CreateRoot(NewDefinition().Lifetime);
 
         // The single construction site for a presenter tree.
-        private Presenter CreateRoot(Lifetime lifetime) => new Presenter.Root(lifetime, _context);
-
-        private static T RunSync<T>(Func<Task<T>> start, int timeoutMilliseconds = 15000)
-        {
-            var previous = SynchronizationContext.Current;
-            SynchronizationContext.SetSynchronizationContext(null);
-            try
-            {
-                var task = start();
-                try
-                {
-                    if (!task.Wait(timeoutMilliseconds))
-                    {
-                        Assert.Fail("Operation did not complete within " + timeoutMilliseconds + " ms.");
-                    }
-                }
-                catch (AggregateException)
-                {
-                }
-
-                return task.GetAwaiter().GetResult();
-            }
-            finally
-            {
-                SynchronizationContext.SetSynchronizationContext(previous);
-            }
-        }
+        private Presenter CreateRoot(Lifetime lifetime) => new Presenter.Root(lifetime, _factory);
 
         private static void AssertHook(string name)
         {
@@ -752,50 +936,6 @@ namespace OpenUGD.Presenters.Tests
                 Rendered = text;
                 RenderCount++;
             }
-        }
-
-        private interface IProbe
-        {
-        }
-
-        private sealed class Probe : IProbe
-        {
-        }
-
-        private sealed class InjectedPresenter : Presenter
-        {
-#pragma warning disable 649
-            [Inject] private IProbe _probe;
-#pragma warning restore 649
-
-            public IProbe Probe => _probe;
-        }
-
-        private interface IUnregistered
-        {
-        }
-
-        private sealed class OptionallyInjectedPresenter : Presenter
-        {
-#pragma warning disable 649
-            [Inject(Optional = true)] private IProbe _probe;
-            [Inject(Optional = true)] private IUnregistered _missing;
-#pragma warning restore 649
-
-            public IProbe Probe => _probe;
-            public IUnregistered Missing => _missing;
-            public IProbe ProbeSeenDuringInitialize { get; private set; }
-
-            protected override void OnInitialize() => ProbeSeenDuringInitialize = _probe;
-        }
-
-        private sealed class RequiredMissingPresenter : Presenter
-        {
-#pragma warning disable 649
-            [Inject] private IUnregistered _missing;
-#pragma warning restore 649
-
-            public IUnregistered Missing => _missing;
         }
 
         private sealed class Payload
@@ -860,6 +1000,57 @@ namespace OpenUGD.Presenters.Tests
             protected override void OnInitialize() => Log.Add($"{_name}:initialize");
 
             protected override void OnClose() => Log.Add($"{_name}:close");
+        }
+
+        private sealed class InitializeProbe : Presenter
+        {
+            private readonly RecordingFactory _factory;
+
+            public InitializeProbe(RecordingFactory factory) => _factory = factory;
+
+            public bool WasInjectedBeforeInitialize { get; private set; }
+
+            protected override void OnInitialize() => WasInjectedBeforeInitialize = _factory.Injected.Contains(this);
+        }
+
+        private sealed class ParentProbe : Presenter
+        {
+            public Presenter ParentSeen { get; private set; } = new TreePresenter("sentinel", new List<string>());
+
+            protected override void OnInitialize() => ParentSeen = Parent;
+        }
+
+        // Wires one listener per attached view on ViewLifetime, the way a real presenter subscribes to a button.
+        private sealed class WiringPresenter : Presenter<WiredView>
+        {
+            public List<string> Log { get; } = new List<string>();
+
+            public Lifetime LastViewLifetime { get; private set; }
+
+            public Action<WiringPresenter> WhenViewAdded { get; set; }
+
+            public Lifetime ReadViewLifetime() => ViewLifetime;
+
+            protected override void OnViewAdded()
+            {
+                var view = View;
+                LastViewLifetime = ViewLifetime;
+                view.Listeners++;
+                ViewLifetime.AddAction(() => {
+                    view.Listeners--;
+                    Log.Add("view-scope-ended, View is " + (ReferenceEquals(View, view) ? "still the old view" : "changed"));
+                });
+                WhenViewAdded?.Invoke(this);
+            }
+
+            protected override void OnViewAfterRemoved() => Log.Add("view-removed");
+
+            protected override void OnClose() => Log.Add("close");
+        }
+
+        private sealed class WiredView
+        {
+            public int Listeners { get; set; }
         }
     }
 }

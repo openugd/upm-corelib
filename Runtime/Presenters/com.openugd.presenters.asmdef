@@ -2,8 +2,7 @@
     "name": "com.openugd.presenters",
     "rootNamespace": "OpenUGD.Presenters",
     "references": [
-        "com.openugd.lifetime",
-        "com.openugd.context"
+        "com.openugd.lifetime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

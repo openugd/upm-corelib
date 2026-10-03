@@ -1,15 +1,16 @@
 {
-    "name": "com.openugd.presenters.tests",
-    "rootNamespace": "OpenUGD.Presenters.Tests",
+    "name": "com.openugd.corelib.playmode.tests",
+    "rootNamespace": "OpenUGD.Tests",
     "references": [
+        "com.openugd.corelib",
         "com.openugd.presenters",
+        "com.openugd.context",
         "com.openugd.lifetime",
+        "com.openugd.signal",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
-    "includePlatforms": [
-        "Editor"
-    ],
+    "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": true,
