@@ -171,6 +171,42 @@ namespace OpenUGD.Tests
             Assert.Greater(fired, 0, "the override called base.Update(), so OnUpdate keeps firing");
         }
 
+        // ------------------------------------------------------------------ boot failures (CC-28)
+
+        [UnityTest]
+        public IEnumerator ContextBehaviour_WhenOnStartedThrows_DisposesTheContext_AndLeavesContextNull()
+        {
+            var behaviour = Create("context").AddComponent<FailingStartContext>();
+
+            for (var frame = 0; frame < 30 && !behaviour.Startup.IsCompleted; frame++) yield return null;
+
+            Assert.IsTrue(behaviour.Startup.IsFaulted, "a throwing OnStarted faults Startup");
+            Assert.IsInstanceOf<InvalidOperationException>(behaviour.Reported, "and reaches OnStartFailed");
+            Assert.IsNotNull(behaviour.Built, "the context was built before OnStarted ran");
+            Assert.IsNull(behaviour.Context, "a context whose OnStarted failed is not published");
+            Assert.IsTrue(behaviour.Built.Lifetime.IsTerminated, "and is disposed, not left running");
+            Assert.IsFalse(behaviour.Lifetime.IsTerminated, "the behaviour's own scope survives, so Rebuild can retry");
+        }
+
+        [Test]
+        public void ContextBehaviour_Rebuild_WhenTheOldScopeFailsToTerminate_StillStartsTheNewBoot_ThenRethrows()
+        {
+            var behaviour = Create("context").AddComponent<CountingContext>();
+            var old = behaviour.Lifetime;
+            var oldStartup = behaviour.Startup;
+            var failure = new InvalidOperationException("a service failed to dispose");
+            old.AddAction(() => throw failure);
+
+            var thrown = Assert.Throws<InvalidOperationException>(behaviour.Rebuild);
+
+            Assert.AreSame(failure, thrown, "the teardown failure reaches the caller as itself");
+            Assert.IsTrue(old.IsTerminated, "the old scope is terminated anyway");
+            Assert.AreNotSame(old, behaviour.Lifetime);
+            Assert.IsFalse(behaviour.Lifetime.IsTerminated, "a new scope is in place");
+            Assert.AreNotSame(oldStartup, behaviour.Startup);
+            Assert.AreEqual(2, behaviour.Boots, "and the new boot has started");
+        }
+
         // ------------------------------------------------------------------ ICoroutineProvider (CC-8)
 
         [Test]
@@ -303,6 +339,40 @@ namespace OpenUGD.Tests
             cancellationToken.Register(() => pending.TrySetCanceled(cancellationToken));
             return pending.Task;
         }
+    }
+
+    // Counts how many boots have started.
+    public sealed class CountingContext : PendingContext
+    {
+        public int Boots { get; private set; }
+
+        /// <inheritdoc />
+        protected override Task<Context> CreateContextAsync(CancellationToken cancellationToken)
+        {
+            Boots++;
+            return base.CreateContextAsync(cancellationToken);
+        }
+    }
+
+    // Builds a real (empty) context, then fails in OnStarted; records instead of logging, so nothing is logged.
+    public sealed class FailingStartContext : ContextBehaviour
+    {
+        public Context Built { get; private set; }
+        public Exception Reported { get; private set; }
+
+        protected override bool PersistAcrossScenes => false;
+
+        /// <inheritdoc />
+        protected override async Task<Context> CreateContextAsync(CancellationToken cancellationToken)
+        {
+            Built = await Context.CreateBuilder(Lifetime).BuildAsync(cancellationToken);
+            return Built;
+        }
+
+        protected override void OnStarted(Context context) =>
+            throw new InvalidOperationException("OnStarted failed");
+
+        protected override void OnStartFailed(Exception exception) => Reported = exception;
     }
 
     public sealed class SceneContext : PendingContext

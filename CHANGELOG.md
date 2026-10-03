@@ -209,9 +209,10 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
   sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
   15 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, and
-  which code implements `ICoroutineProvider`), and 15 marked `RequiresUnity` cover `ViewBehaviour`'s scope
+  which code implements `ICoroutineProvider`), and 17 marked `RequiresUnity` cover `ViewBehaviour`'s scope
   and `CloseWith`, a destroyed view skipping `Refresh`, `PersistAcrossScenes` on a root and on a child, a
-  boot cancelled by destruction, overrides that call `base`, and coroutines through `ICoroutineProvider`.
+  boot cancelled by destruction, a failing `OnStarted` and a failing `Rebuild` teardown, overrides that call
+  `base`, and coroutines through `ICoroutineProvider`.
 
 ### Changed
 
@@ -494,6 +495,16 @@ rename entry near the top of this section for the full table.
   `StartCoroutine` throws `ArgumentNullException` for a `null` body and `InvalidOperationException` when the
   behaviour is destroyed, inactive or disabled, and never returns `null`; `StopCoroutine` is a no-op on a
   destroyed behaviour. Calling `StartCoroutine` on the class itself still reaches Unity's method.
+- **A failed `OnStarted` no longer leaves its context published and running** (audit CC-28). `Context` was
+  set before `OnStarted` ran and stayed set when it threw, so code that checked `Context != null` used a
+  context whose start had failed. The context is now disposed and `Context` is `null` again before
+  `OnStartFailed` runs and `Startup` faults; if disposing throws too, both failures arrive as one
+  `AggregateException`, `OnStarted`'s first. The behaviour's own `Lifetime` and signals stay alive, so
+  `Rebuild` can retry.
+- **`ContextBehaviour.Rebuild` starts the new boot even when tearing down the old one throws** (audit CC-28).
+  The exception escaped before the new boot started, leaving a dead scope, no boot and a disposed context
+  still in `Context`. The old scope is terminated whatever happens, the new scope and boot start, and then
+  the teardown's failure is rethrown to the caller of `Rebuild`.
 - **A presenter whose `OnClose` throws is still unlinked from its parent** (audit CC-4). The unlink came
   after `OnClose` without a `finally`, so the closed presenter stayed in `Children`.
 

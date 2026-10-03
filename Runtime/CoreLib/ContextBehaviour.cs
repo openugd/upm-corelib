@@ -125,8 +125,8 @@ namespace OpenUGD.Core
 
         /// <summary>
         /// The context produced by the boot. <c>null</c> until <see cref="Startup"/> completes
-        /// successfully, and <c>null</c> again from the moment <see cref="Rebuild"/> is called until the
-        /// new boot completes.
+        /// successfully, <c>null</c> again from the moment <see cref="Rebuild"/> is called until the
+        /// new boot completes, and <c>null</c> after a boot whose <see cref="OnStarted"/> threw.
         /// </summary>
         public Context Context { get; private set; }
 
@@ -170,8 +170,10 @@ namespace OpenUGD.Core
 
         /// <summary>
         /// Called on the main thread once the context is built, immediately before <see cref="Startup"/>
-        /// completes. <see cref="Context"/> is already set. Throwing here faults <see cref="Startup"/> and
-        /// reaches <see cref="OnStartFailed"/> like any other boot failure.
+        /// completes. <see cref="Context"/> is already set. Throwing here is a boot failure like any other: the
+        /// context is disposed, <see cref="Context"/> is <c>null</c> again, then <see cref="OnStartFailed"/> runs
+        /// and <see cref="Startup"/> faults. <i>Changed in 2.0.0</i> — the context stayed published and alive
+        /// after a failed <see cref="OnStarted"/> (audit CC-28).
         /// </summary>
         /// <param name="context">The context just built; never <c>null</c>.</param>
         protected virtual void OnStarted(Context context)
@@ -191,11 +193,22 @@ namespace OpenUGD.Core
         /// Play mode only.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// Exposed as a context-menu item so a running context can be restarted from the inspector. In Edit
         /// mode it does nothing but warn: there is no <c>Awake</c>, no frame loop and no
         /// <c>DontDestroyOnLoad</c> outside play mode, so a "rebuild" there would leave a half-built scope
         /// attached to a scene object and get serialized into the scene.
+        /// </para>
+        /// <para>
+        /// <b>A failing teardown does not stop the new boot.</b> If terminating the old scope throws — a service
+        /// that fails to dispose, say — the old scope is terminated anyway, the new scope and boot are started,
+        /// and then the teardown's exception is rethrown to the caller, as <see cref="OpenUGD.Lifetime"/> reports
+        /// it: one failure as itself, several as an <see cref="AggregateException"/>. <i>Changed in 2.0.0</i> —
+        /// the exception escaped before the new boot started, leaving the behaviour with a dead scope, no boot
+        /// and a disposed <see cref="Context"/> still published (audit CC-28).
+        /// </para>
         /// </remarks>
+        /// <exception cref="Exception">Terminating the old scope threw; the new boot has started.</exception>
         [ContextMenu("Rebuild")]
         public void Rebuild()
         {
@@ -208,8 +221,16 @@ namespace OpenUGD.Core
                 return;
             }
 
-            _definition?.Terminate();
-            Create();
+            var previous = _definition;
+            Context = null;
+            try
+            {
+                previous?.Terminate();
+            }
+            finally
+            {
+                Create();
+            }
         }
 
         /// <summary>
@@ -329,6 +350,22 @@ namespace OpenUGD.Core
 
         private static void Observe(Task task) => _ = task.Exception;
 
+        // Disposes a context whose boot failed after it was built. If disposing throws as well, both failures go on
+        // together, the boot's first; otherwise the caller rethrows the boot's failure as itself.
+        private static void DisposeAfterFailure(Context context, Exception failure)
+        {
+            try
+            {
+                context.Dispose();
+            }
+            catch (Exception disposal)
+            {
+                throw new AggregateException(
+                    "OnStarted threw, and disposing the context it was given threw too. The context is disposed; " +
+                    "the first inner exception is OnStarted's.", failure, disposal);
+            }
+        }
+
         private async Task BootAsync(Lifetime lifetime)
         {
             var cancellationToken = lifetime.AsCancellationToken();
@@ -355,7 +392,19 @@ namespace OpenUGD.Core
                 }
 
                 Context = context;
-                OnStarted(context);
+                try
+                {
+                    OnStarted(context);
+                }
+                catch (Exception failure)
+                {
+                    // Not started, so not published: a context whose OnStarted failed is half set up, and leaving it
+                    // in Context (alive, its services running) is what audit CC-28 found. OnStarted may itself have
+                    // called Rebuild, in which case Context already belongs to the next boot.
+                    if (ReferenceEquals(Context, context)) Context = null;
+                    DisposeAfterFailure(context, failure);
+                    throw;
+                }
             }
             catch (OperationCanceledException) when (lifetime.IsTerminated)
             {
