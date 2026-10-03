@@ -3,6 +3,8 @@
     "rootNamespace": "OpenUGD.Logging.Tests",
     "references": [
         "com.openugd.logging",
+        "com.openugd.logging.unity",
+        "com.openugd.lifetime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

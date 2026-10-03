@@ -222,9 +222,9 @@ reaches you. The three headline breaks are the UI services leaving corelib, the 
   the deleted surface and the presenter open sequence, all through public API),
   `com.openugd.commands.tests` (25 tests over the command mapper — registration, its check and its undoing,
   factories, the execution's lifetime, exact-type routing — and its stripping annotations) and
-  `com.openugd.logging.tests` (27 tests over tag paths,
+  `com.openugd.logging.tests` (29 tests over tag paths,
   the filters, `IsEnabled`, sink fan-out, writes and subscriptions from other threads and from inside a
-  sink, and teardown). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
+  sink, teardown, and `UseUnityConsole`'s arguments). `com.openugd.corelib.playmode.tests` is a Play Mode suite for the Unity boundary:
   26 tests need no Unity runtime (`ContextPresenterFactory`, the shape of the Unity message methods, which
   code implements `ICoroutineProvider`, `PlaySession`, including that nothing else in the assembly roots a
   scope in `Lifetime.Eternal`, and that no component property creates a scope), and 32 marked
@@ -545,6 +545,11 @@ rename entry near the top of this section for the full table.
   still fires once on the way out, from `OnApplicationQuit` or from the end of the session, whichever Unity
   does first, while the context is alive. A `ContextBehaviour` that wakes after the session has ended boots
   nothing: `Startup` ends cancelled.
+- **`UseUnityConsole` checks its arguments, and its docs use the names of 2.0.0** (audit CC-14). It was
+  documented as throwing `NullReferenceException` for a `null` root or lifetime because "neither is checked";
+  it throws `ArgumentNullException` now. On a lifetime that has already terminated it attaches nothing,
+  instead of subscribing the sink and unsubscribing it again inside the call. The `UnityLogSink` docs still
+  called sinks "providers", the 0.6.1 name.
 - **A presenter whose attach fails no longer stays in the tree** (audit CC-4). An exception from the
   factory's `Inject` or from `OnInitialize` left the child in its parent's `Children` with a live
   `Lifetime`, so the parent went on closing and counting a presenter that never initialized. `AddPresenter`,

@@ -19,7 +19,7 @@ namespace OpenUGD.Logging
     /// guard: in a release player, every record that survives <see cref="LogRoot.Flag"/> is still
     /// formatted and still handed to <see cref="UnityEngine.Debug"/>. Quieten a shipped build by
     /// narrowing <see cref="LogRoot.Flag"/>, which is tested before the record ever reaches a
-    /// provider — not by expecting these calls to disappear.
+    /// sink — not by expecting these calls to disappear.
     /// </para>
     /// <para>
     /// Stateless, so one instance can serve any number of loggers;
@@ -96,36 +96,42 @@ namespace OpenUGD.Logging
         /// </summary>
         /// <remarks>
         /// <para>
-        /// The one line of boot code that makes a <see cref="LogRoot"/> visible: until some provider
+        /// The one line of boot code that makes a <see cref="LogRoot"/> visible: until some sink
         /// is attached, every write through the tree is a no-op.
         /// </para>
         /// <para>
-        /// <b>Not idempotent.</b> Each call constructs and subscribes its own provider, and
+        /// <b>Not idempotent.</b> Each call constructs and subscribes its own sink, and
         /// <see cref="LogRoot.Subscribe"/> does not deduplicate, so calling this twice on the same
-        /// logger prints every record to the console twice. Call it once, where the logger is created.
+        /// root prints every record to the console twice. Call it once, where the root is created.
         /// </para>
         /// <para>
-        /// <b>An already-terminated lifetime attaches nothing.</b> <see cref="Lifetime.AddAction"/> runs
-        /// its action immediately in that case, so the provider is subscribed and then unsubscribed
-        /// inside this call, and no record ever reaches the console through it — with no error to
-        /// notice. Test <see cref="Lifetime.IsTerminated"/> if a dead scope can reach here.
+        /// <b>An already-terminated lifetime attaches nothing</b>, as registering anything else on a
+        /// terminated lifetime does nothing that outlives the call. Test <see cref="Lifetime.IsTerminated"/>
+        /// first if you need to know.
         /// </para>
         /// <para>
-        /// The provider is not returned, so terminating <paramref name="lifetime"/> is the only way to
+        /// The sink is not returned, so terminating <paramref name="lifetime"/> is the only way to
         /// detach it. For finer control, construct a <see cref="UnityLogSink"/> yourself and hand
         /// it to <see cref="LogRoot.Subscribe"/>.
         /// </para>
         /// </remarks>
-        /// <param name="logger">The logger tree whose records should reach the Unity console.</param>
+        /// <param name="logger">The root whose records should reach the Unity console.</param>
         /// <param name="lifetime">The scope the subscription lives inside — typically the context's, so
         /// the console stops receiving records when that context is torn down.</param>
-        /// <exception cref="System.NullReferenceException"><paramref name="logger"/> or
-        /// <paramref name="lifetime"/> is <c>null</c>; neither is checked.</exception>
+        /// <exception cref="System.ArgumentNullException"><paramref name="logger"/> or
+        /// <paramref name="lifetime"/> is <c>null</c>. <i>Changed in 2.0.0</i> — neither was checked, and a
+        /// <c>null</c> surfaced as a <see cref="System.NullReferenceException"/>.</exception>
         public static void UseUnityConsole(this LogRoot logger, Lifetime lifetime)
         {
-            var unityLogger = new UnityLogSink();
-            logger.Subscribe(unityLogger);
-            lifetime.AddAction(() => logger.Unsubscribe(unityLogger));
+            if (logger == null)
+                throw new System.ArgumentNullException(nameof(logger), $"{nameof(logger)} can't be null");
+            if (lifetime == null)
+                throw new System.ArgumentNullException(nameof(lifetime), $"{nameof(lifetime)} can't be null");
+            if (lifetime.IsTerminated) return;
+
+            var sink = new UnityLogSink();
+            logger.Subscribe(sink);
+            lifetime.AddAction(() => logger.Unsubscribe(sink));
         }
     }
 }
