@@ -6,16 +6,12 @@ namespace OpenUGD.Commands
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The split is the point: a system that announces things gets <see cref="ITellMessage"/> and cannot
-    /// change what happens next; a system that wires the game together gets this and does not need the
-    /// ability to fire. <see cref="CommandMap"/> implements both, and
-    /// <c>ServiceCollection.AddCommandMap</c> registers one instance under both contracts — unless the
-    /// consumer already registered an <see cref="IMapCommand"/> of their own, which is the seam for
-    /// replacing the router wholesale.
+    /// <see cref="CommandMap"/> implements both, and <c>ServiceCollection.AddCommandMap</c> registers one
+    /// instance under both contracts — unless an <see cref="IMapCommand"/> is already registered, which is how a
+    /// router of your own replaces it.
     /// </para>
     /// <para>
-    /// One method, because everything else is an extension over it; see
-    /// <see cref="CommandMapperExtensions"/> for the typed spellings.
+    /// The typed spellings are extension methods; see <see cref="CommandMapperExtensions"/>.
     /// </para>
     /// </remarks>
     public interface IMapCommand

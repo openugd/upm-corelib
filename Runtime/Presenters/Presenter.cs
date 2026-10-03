@@ -416,10 +416,9 @@ namespace OpenUGD.Presenters
     /// A presenter with a view: the thing that actually renders.
     /// </summary>
     /// <typeparam name="TView">
-    /// The view type. Any reference type — a <c>MonoBehaviour</c>, an interface, or a plain class standing in
-    /// for something the engine does not own, such as a native web overlay. There is deliberately no
-    /// constraint: requiring the view type to answer for its own liveness cannot work for views this project
-    /// does not own, <c>UnityEngine.UI.Button</c> being the obvious one.
+    /// The view type. Any reference type — a <c>MonoBehaviour</c>, a component you do not own such as
+    /// <c>UnityEngine.UI.Button</c>, an interface, or a plain class standing in for something the engine does not
+    /// own, such as a native web overlay. Liveness is tested as <see cref="IsLive"/> describes.
     /// </typeparam>
     /// <remarks>
     /// <para>

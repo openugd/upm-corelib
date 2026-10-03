@@ -8,17 +8,12 @@ namespace OpenUGD.Utils
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Coroutines are the one piece of Unity scheduling that cannot be reached from a plain C# object: they
-    /// require a live <see cref="MonoBehaviour"/>. This interface is the seam that lets a service, a
-    /// presenter or a test double schedule one without inheriting from the engine — the engine boundary is
-    /// one interface wide, and everything above it stays testable.
+    /// A service, a presenter or a test double takes this instead of a <see cref="MonoBehaviour"/>.
     /// </para>
     /// <para>
-    /// <b>Never returns <c>null</c>.</b> An implementation that cannot start the coroutine must throw.
-    /// Returning <c>null</c> would hand the caller a "success" it cannot distinguish from a silent no-op, and
-    /// callers routinely discard the return value. That includes a coroutine that finishes inside the call — its
-    /// first step is its last — for which Unity's own <c>StartCoroutine</c> returns <c>null</c>: the
-    /// implementations in this package return a handle for it too.
+    /// <b>Never returns <c>null</c>.</b> An implementation that cannot start the coroutine must throw. A
+    /// coroutine that finishes inside the call — its first step is its last — still gets a handle from the
+    /// implementations in this package, although Unity's own <c>StartCoroutine</c> returns <c>null</c> for it.
     /// </para>
     /// <para>
     /// <b>Lifetime.</b> A coroutine is bound to the host object, not to a <see cref="Lifetime"/>. It stops
@@ -49,8 +44,7 @@ namespace OpenUGD.Utils
         /// </summary>
         /// <remarks>
         /// Stopping a coroutine that has already finished, or whose host has been destroyed, is a no-op: the
-        /// requested postcondition — that the coroutine is not running — already holds. This is not a silent
-        /// failure, it is the operation succeeding trivially.
+        /// coroutine is not running afterwards either way.
         /// </remarks>
         /// <param name="coroutine">The coroutine to stop. Must not be <c>null</c>.</param>
         /// <exception cref="System.ArgumentNullException"><paramref name="coroutine"/> is

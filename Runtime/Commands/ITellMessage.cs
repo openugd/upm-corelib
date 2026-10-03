@@ -6,15 +6,12 @@ namespace OpenUGD.Commands
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Deliberately split from <see cref="IMapCommand"/>, the half that installs behaviour. Hand a caller
-    /// that only needs to announce something this interface and it cannot rewire the map behind your back.
-    /// <see cref="CommandMap"/> implements both and <c>ServiceCollection.AddCommandMap</c> registers it
-    /// under both contracts, so the split costs a consumer nothing.
+    /// <see cref="IMapCommand"/> is the other half, the one that installs behaviour. <see cref="CommandMap"/>
+    /// implements both, and <c>ServiceCollection.AddCommandMap</c> registers it under both contracts.
     /// </para>
     /// <para>
     /// It is also the shape a <i>listener</i> implements: <see cref="CommandMap.Subscribe"/> takes an
-    /// <see cref="ITellMessage"/> and forwards every message to it, whatever its type. That second role is
-    /// why the interface is this small and why <see cref="Tell"/> takes <c>object</c>.
+    /// <see cref="ITellMessage"/> and forwards every message to it, whatever its type.
     /// </para>
     /// </remarks>
     public interface ITellMessage
@@ -43,10 +40,8 @@ namespace OpenUGD.Commands
         /// </para>
         /// </remarks>
         /// <param name="message">The message to raise. Never <c>null</c>.</param>
-        /// <exception cref="System.ArgumentNullException"><paramref name="message"/> is <c>null</c>. Both
-        /// implementations in this package check, because a null here would otherwise surface as a
-        /// <see cref="System.NullReferenceException"/> from a <c>GetType</c> call with no clue who sent
-        /// it.</exception>
+        /// <exception cref="System.ArgumentNullException"><paramref name="message"/> is <c>null</c>; both
+        /// implementations in this package check.</exception>
         /// <exception cref="System.ArgumentException">
         /// <see cref="CommandMapper"/> only: <paramref name="message"/> is not an instance of the message
         /// type that mapper dispatches.

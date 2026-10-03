@@ -5,12 +5,10 @@ using UnityEngine;
 namespace OpenUGD.Core.Editor
 {
     /// <summary>
-    /// Inspector for <see cref="ContextBehaviour"/>: shows the state of the boot and offers Rebuild.
+    /// Inspector for <see cref="ContextBehaviour"/> and its subclasses: below the default inspector, the status of
+    /// <see cref="ContextBehaviour.Startup"/>, the failure's message when the boot faulted, whether
+    /// <see cref="ContextBehaviour.Context"/> is set, and a Rebuild button enabled in play mode.
     /// </summary>
-    /// <remarks>
-    /// The boot status is the point of this drawer. Before 2.0.0 the boot was a discarded task, so a context
-    /// that failed to start looked identical in the inspector to one that started fine.
-    /// </remarks>
     [CustomEditor(typeof(ContextBehaviour), true)]
     public class ContextBehaviourEditor : UnityEditor.Editor
     {

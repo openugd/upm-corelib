@@ -44,7 +44,7 @@ README's "Upgrading to 2.0" section walks through each change with before and af
   `AddWidget` → `AddPresenter`, `IWidgetWith*` → `IPresenterWith*`, `WidgetExtensions` → `PresenterExtensions`.
 - **`OnReady` and `OnAfterModelChanged` are replaced by `OnViewAdded` (wire) and `OnRefresh` (render)**. `OnRefresh`
   runs on every view attach and model change, only while live. Affects every widget.
-- **`Presenter.Root(Lifetime, IInjector)` → `Presenter.Root(Lifetime, IPresenterFactory)`**; a presenter no longer
+- **`Widget.Root(Lifetime, IInjector)` → `Presenter.Root(Lifetime, IPresenterFactory)`**; a presenter no longer
   implements `IResolve`/`IInject`: take services as `[Inject]` members.
 - **`SetView` throws before the presenter is attached** and does nothing after it has closed.
 - **`SetView(object)` and `SetModel(object)` throw `ArgumentException`** naming the presenter for a wrong type,
@@ -83,7 +83,7 @@ README's "Upgrading to 2.0" section walks through each change with before and af
   `null`.
 - **`ICoroutineProvider.StartCoroutine` never returns `null`.** `CoroutineProvider` (now `sealed`) and
   `ContextBehaviour` throw for a destroyed, disabled or inactive host, and work from `Awake`.
-- **`SynchronizationContextWrapper` rejects a `null` context.**
+- **`SynchronizationContextWrapper` is `sealed` and rejects a `null` context.**
 - Minimum Unity version raised to 6000.0.
 - Licence changed from a modified MIT text to Apache-2.0, in `LICENSE.md`. Earlier releases keep their terms.
 
@@ -98,15 +98,15 @@ README's "Upgrading to 2.0" section walks through each change with before and af
   `IAwakeService`/`IInitializeService`; derive from `ContextBehaviour`.
 - **`ValueSubscriber<T>` and `DisposableHandler`.** The README gives a replacement over `Signal<T, T>`; use
   `Lifetime.Definition` for the second.
-- **`OpenUGD.Core.ILifetimeProvider`** (use `OpenUGD.ILifetimeProvider`) and the unreachable
-  `OpenUGD.Core.ILoggerProvider`.
+- **`OpenUGD.Core.ILifetimeProvider`** (use `OpenUGD.ILifetimeProvider`) and `OpenUGD.Core.ILoggerProvider`, which
+  nothing in the package used.
 - **`ILocalization` and `ILocalizationChanged`**, moved to `com.openugd.corelib.widgets` with their GUIDs.
 - **`ContextInstanceComponent`, `ContextFactoryInstancesComponent`, `IContextInstanceProvider`** and the factory's
   inspector, moved to the Multi Instance sample with their GUIDs, namespace and field names.
 - **`SignalMonoBehaviour.UpdateSignal`, `LateUpdateSignal`, `FixedUpdateSignal` and `AwakeSignal`.** Subscribe to
   `ContextBehaviour.OnUpdate`.
-- **The view and model members of the widget interfaces**, `Widget.Internal`, `ISubscribeNotify` and
-  `OnViewBeforeRemove`; register view clean-up on `ViewLifetime`.
+- **The view and model members of the widget interfaces**, `IWidgetWithView<TView>` (use `Presenter<TView>`),
+  `Widget.Internal`, `ISubscribeNotify` and `OnViewBeforeRemove`; register view clean-up on `ViewLifetime`.
 - **`ICommandMapper.RegisterCommand(Func<Lifetime, ICommand>, bool)`**; see the registrations under *Added*.
 - **Seventeen unused utility files**: `ArrayUtils`, `RectExtension`, `NumberConversionUtils`, `TimeFormat`,
   `Persist`, `IPersistProvider`, `PersistValueSubscriber`, `ResourceManager`, `ResourceBatchLoader`, `KeepReference`,
@@ -120,7 +120,6 @@ README's "Upgrading to 2.0" section walks through each change with before and af
 - Clean-up a command registered on its `Lifetime` piled up on the registration, one more per message.
 - A widget whose `Inject` or `OnInitialize` threw stayed in its parent's `Children`, alive; one whose `OnClose`
   threw was not unlinked from its parent.
-- A failed boot was lost in a discarded task; it now reaches `OnStartFailed` and faults `Startup`.
 - `Rebuild` did not boot again when tearing down the old scope threw.
 - `StartCoroutine` returned `null` for an inactive host — `CoroutineProvider`, and the factory component through
   Unity's own method — so the coroutine never ran; `CoroutineProvider` checked only the host's own `activeSelf`.

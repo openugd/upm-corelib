@@ -411,9 +411,9 @@ public static class ShopCommands
 - **Routing is by exact type.** `Tell` runs the commands mapped to the message's runtime type and nothing else: a
   mapping for a base class or an interface of the message does not run, and neither does one for a derived type.
 - **By type or by factory.** A command registered by type is checked at registration — the constructor is chosen
-  as `Context.Instantiate` chooses one, and every `[Inject]` member must be resolvable from the context — and
-  each `Tell` then calls that constructor and fills those members. A factory builds the command itself, with no
-  reflection, and its command is not injected.
+  as `Context.Instantiate` chooses one, and every `[Inject]` member not marked `Optional` must be resolvable from
+  the context — and each `Tell` then calls that constructor and fills those members. A factory builds the command
+  itself, with no reflection, and its command is not injected.
 - **Every registration returns its `Lifetime.Definition`.** Terminate or dispose it to unregister;
   `ICommandMapperRemove.Remove<T>()` removes every registration of a command type. A `oneTime` registration runs
   once — even if its command tells the same message again — and then ends.
@@ -553,6 +553,8 @@ licensed under Apache-2.0. Most of it is breaking; each part says whom it affect
 1. In `Packages/manifest.json`, set `com.openugd.corelib` to `2.0.0` and remove `com.openugd.dependency.injection`:
    corelib now depends on `com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context` 2.0.0, and code
    that sees both `com.openugd.dependency.injection` and `com.openugd.context` fails with CS0433 on `[Inject]`.
+   If the manifest lists `com.openugd.lifetime` or `com.openugd.signal` itself (0.6.1 needed 1.2.0 and 1.0.0),
+   set those to `2.0.0` too: a version the project lists wins over the one a package asks for.
 2. Fix the `using` lines and assembly references below, then work through the sections that apply.
 
 ### Assemblies and namespaces
@@ -566,13 +568,15 @@ namespaces; an assembly definition of your own adds the assemblies it uses (see 
 | `OpenUGD.Core.Loggers` | `OpenUGD.Logging` | `com.openugd.logging`; `UnityLogSink` is in `com.openugd.logging.unity` |
 | `OpenUGD.Commands`, `OpenUGD.Services.Commands` | `OpenUGD.Commands` | `com.openugd.commands` |
 | `OpenUGD.Core`, `OpenUGD.Utils`, `OpenUGD.Utils.Components` | unchanged | `com.openugd.corelib` |
+| `OpenUGD.Services` (`Service`, `ServiceState`), `OpenUGD.Core.ContextBuilder` | removed; `OpenUGD` in `com.openugd.context` | see the next section |
 
 ### Services and the context: `Service` → `IAwakeService` / `IInitializeService`
 
 The composition layer of 0.6.1 — `ContextStartup`, `IContextServiceSetup`, the service builder and observers,
 `IContext`, `OpenUGD.Core.Context` — is gone; `com.openugd.context` replaces it, and its README has a section,
-*From corelib 0.6.x*, that maps each piece. A `Service` becomes a plain class that implements the boot phases it
-needs. **Affects you if** you derived from `Service`.
+[*From corelib 0.6.x*](https://github.com/openugd/upm-context#from-corelib-06x), that maps each piece. A
+`Service` becomes a plain class that implements the boot phases it needs. **Affects you if** you derived from
+`Service`.
 
 <!-- upm-tools: no-compile (the corelib 0.6.1 API, removed in 2.0) -->
 ```csharp
@@ -677,8 +681,9 @@ public sealed class GameFactory : ContextBehaviour
 
 What else changed at the boundary, compiling unchanged unless noted:
 
-- **The boot is `Startup`.** A failure reaches `OnStartFailed` and faults `Startup`; 0.6.1 lost it in a discarded
-  task. `Context` is `null` until the boot has finished.
+- **The boot is `Startup`.** A failure reaches `OnStartFailed` and faults `Startup`. `ContextFactoryComponent`'s
+  synchronous `CreateContext` gave an asynchronous boot no task to hand back, so a failure went unreported unless
+  your code caught it. `Context` is `null` until the boot has finished.
 - **`DontDestroyOnLoad` is a choice.** It is still the default; override `PersistAcrossScenes` to return `false`.
 - **Unity messages are `protected virtual`.** A subclass that declared its own `Update`, `Awake` or `OnDestroy`
   silently replaced the base's in 0.6.1; it now gets warning CS0114. Declare it `protected override` and call
@@ -688,7 +693,8 @@ What else changed at the boundary, compiling unchanged unless noted:
   `Application.quitting`, newest first, rather than one by one in `OnDestroy`.
 - **`ICoroutineProvider.StartCoroutine` never returns `null`.** `CoroutineProvider` and `ContextBehaviour` throw
   for a host that is destroyed, disabled or inactive in the hierarchy; 0.6.1 returned `null` and the coroutine never
-  ran. `SynchronizationContextWrapper` rejects a `null` context.
+  ran. `CoroutineProvider` and `SynchronizationContextWrapper` are `sealed`, and the wrapper rejects a `null`
+  context.
 - **`SignalMonoBehaviour`** loses `UpdateSignal`, `LateUpdateSignal`, `FixedUpdateSignal` and `AwakeSignal`;
   subscribe to `ContextBehaviour.OnUpdate` instead. Reading a signal before `Awake` throws.
 
@@ -702,7 +708,8 @@ dependencies through a factory instead of the injector.
 | `Widget`, `Widget<TView>`, `Widget<TView, TModel>` | `Presenter`, `Presenter<TView>`, `Presenter<TView, TModel>` |
 | `WidgetView` (protected `Lifetime`, `OnAwake`) | `ViewBehaviour` (public `Lifetime`; override `Awake` and call `base.Awake()`) |
 | `WidgetExtensions` | `PresenterExtensions` |
-| `IWidgetWithView`, `IWidgetWithModel` | `IPresenterWithView`, `IPresenterWithModel` |
+| `IWidgetWithView`, `IWidgetWithModel`, `IWidgetWithModel<TModel>` | `IPresenterWithView`, `IPresenterWithModel`, `IPresenterWithModel<TModel>`: `ViewType`, `SetView(object)`, `SetModel(object)` and the typed `Model` remain; `View`, the untyped `Model`, `ModelChanged` and the hooks are gone, and the model interface no longer extends the view one |
+| `IWidgetWithView<TView>` | `Presenter<TView>` itself |
 | `AddWidget` | `AddPresenter` |
 | `new Widget.Root(lifetime, injector)` | `new Presenter.Root(lifetime, new ContextPresenterFactory(context))` |
 | `OnReady()` | `OnViewAdded()` to wire the view, `OnRefresh()` to render |
@@ -824,7 +831,8 @@ log.Info("added");
 // ILog is not IDisposable; root.Dispose() detaches the sinks
 ```
 
-Also: a logger derived from the root has the root as its `Parent` and honours the root's `Flag`; `WithTag(null)`
+Also: a logger derived from the root has the root as its `Parent`, and its `LogFlag` includes the root's `Flag`
+(0.6.1 already dropped such records at the root, but `LogFlag` did not say so); `WithTag(null)`
 and `WithTag("")` throw; a derived logger builds its tag path once instead of on every write;
 `LogRoot.Dispose()` detaches the sinks instead of throwing `NotImplementedException`. To intercept every record,
 implement `ILogSink` rather than overriding `LogRoot`.
@@ -839,6 +847,7 @@ is written into the container.
 | --- | --- |
 | `RegisterCommand(Func<Lifetime, ICommand>, bool)` returning `Lifetime` | `RegisterCommand(Type, bool)`, `RegisterCommand(Func<object, Lifetime, ICommand>, bool)`, `RegisterCommand<T>()`, `Map<TMessage, TCommand>()`, `Map<TMessage>(factory)`, all returning `Lifetime.Definition` |
 | `IContextSetup.AddCommandMap()` | `ServiceCollection.AddCommandMap()` |
+| `IContextSetup.MapCommand()`, `IContextSetup.Tell(message)` | `Context.MapCommand()`, `Context.Tell(message)` |
 | `CommandMap(Lifetime, IInjector)`, `CommandMapper(Lifetime, Type, IInjector)` | `CommandMap(Lifetime, Context)`, `CommandMapper(Lifetime, Type, Context)` |
 | the registration's `Lifetime` offered to the command | the execution's `Lifetime` (ends when `Execute` returns); the registration is the `Lifetime.Definition` argument |
 | `ICommandMapperRemove` (implemented by nothing) | implemented by `CommandMapper` |
@@ -985,12 +994,15 @@ handle.Lifetime.AddAction(Release);
 ### Also removed
 
 - `OpenUGD.Core.ILifetimeProvider`: use `OpenUGD.ILifetimeProvider` from `com.openugd.context`, which `Context`
-  implements. `OpenUGD.Core.ILoggerProvider`, which nothing could reach.
-- Seventeen utility files with no caller and no serialized reference: `ArrayUtils`, `RectExtension`,
+  implements. `OpenUGD.Core.ILoggerProvider` (a `Logger Logger { get; }` interface that nothing in the package
+  used, and whose name clashed with `OpenUGD.Core.Loggers.ILoggerProvider`): expose an `ILog` property of your
+  own.
+- Seventeen utility files that nothing else in the package used: `ArrayUtils`, `RectExtension`,
   `NumberConversionUtils`, `TimeFormat`, `Persist`, `IPersistProvider`, `PersistValueSubscriber`, `ResourceManager`,
   `ResourceBatchLoader`, `KeepReference`, `MethodInvoker`, `MethodAttributeUtil`, `FitOrthographicComponent`,
   `FillOrthographicComponent`, `SpriteRendererFillOrthographicComponent`, `IgnoreOnPointEnterInputModule`,
-  `IgnoreOnPointerEnter`. Copy what you used from 0.6.1.
+  `IgnoreOnPointerEnter`. Copy what you used from 0.6.1; for one of the five components, copy its `.meta` file
+  too, so that scenes and prefabs that use it keep their script reference.
 - The `com.unity.ugui` dependency. A project that uses uGUI keeps it through its own manifest or through
   `com.openugd.corelib.widgets`.
 

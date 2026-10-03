@@ -10,7 +10,9 @@ message.
 2. Add an empty GameObject and put `CommandsSample` on it.
 3. Press Play and read the Console.
 
-The whole sequence runs in `OnStarted`. Expected output, without the `Commands.` tag prefix:
+The whole sequence runs in `OnStarted`. Expected output, with the root tag `Commands` taken off the front of
+each tag path: `Commands.Sample->` reads `Sample->` here, and a line the commands write through the root logger
+itself, `Commands->`, reads `->`.
 
 ```text
 Sample->1. the starter pack, twice: the one-time command runs once
