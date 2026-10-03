@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-07-31
+## [2.0.0]
 
 CoreLib is now the Unity boundary for `com.openugd.context` plus the utilities that go with it, and
 nothing else. The composition layer it used to own is gone: `com.openugd.context` 2.0.0 does that job,
