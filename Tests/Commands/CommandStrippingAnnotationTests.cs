@@ -7,11 +7,12 @@ using NUnit.Framework;
 namespace OpenUGD.Commands.Tests
 {
     /// <summary>
-    /// The contract with Unity's linker, checked by reflection so that level 1 catches a regression without
-    /// running the linker. A command registered by type is built through a constructor the mapper looks up by
-    /// reflection at registration; nothing else in a player names it. Every entry point a command type passes
-    /// through therefore carries <c>[DynamicallyAccessedMembers]</c> for its constructors, or a stripped player
-    /// loses them and registration fails. The linker matches the attribute by name, so these tests do too.
+    /// The contract with Unity's linker, checked by reflection so that the engine-free .NET run catches a
+    /// regression without running the linker. A command registered by type is built through a constructor the
+    /// mapper looks up by reflection at registration; nothing else in a player names it. Every entry point a
+    /// command type passes through therefore carries <c>[DynamicallyAccessedMembers]</c> for its constructors, or
+    /// a stripped player loses them and registration fails. The linker matches the attribute by name, so these
+    /// tests do too.
     /// </summary>
     [TestFixture]
     public class CommandStrippingAnnotationTests

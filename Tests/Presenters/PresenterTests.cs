@@ -6,8 +6,8 @@ using NUnit.Framework;
 
 namespace OpenUGD.Presenters.Tests
 {
-    // Specification source: ROADMAP-v2.md section 4.2 ("Presenters: OnReady is deleted"), and the stage-5 seams
-    // of decision 7 (public Attach, IPresenterFactory, a view-scoped lifetime).
+    // The presenter contract of 2.0: OnReady of 0.6.1 is gone, split into OnViewAdded and OnRefresh, and three
+    // seams are added: a public Attach, IPresenterFactory and a view-scoped lifetime (ViewLifetime).
     //
     // The contract under test:
     //   OnViewAdded()  fires exactly once, when a view attaches. Never again for the same view.
@@ -1059,7 +1059,7 @@ namespace OpenUGD.Presenters.Tests
             CollectionAssert.IsEmpty(presenter.Log, "OnInitialize must not run when injection failed");
         }
 
-        // ------------------------------------------------------------------ a failed attach is undone (CC-4)
+        // ------------------------------------------------------------------ a failed attach is undone
 
         [Test]
         public void AddPresenter_WhenOnInitializeThrows_LeavesNoZombieChild()

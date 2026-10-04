@@ -416,9 +416,9 @@ namespace OpenUGD.Core
                 }
                 catch (Exception failure)
                 {
-                    // Not started, so not published: a context whose OnStarted failed is half set up, and leaving it
-                    // in Context (alive, its services running) is what audit CC-28 found. OnStarted may itself have
-                    // called Rebuild, in which case Context already belongs to the next boot.
+                    // Not started, so not published: a context whose OnStarted failed is half set up, and it must not
+                    // stay in Context, alive with its services running. OnStarted may itself have called Rebuild, in
+                    // which case Context already belongs to the next boot.
                     if (ReferenceEquals(Context, context)) Context = null;
                     DisposeAfterFailure(context, failure);
                     throw;

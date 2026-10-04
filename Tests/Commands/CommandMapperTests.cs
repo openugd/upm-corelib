@@ -11,7 +11,7 @@ namespace OpenUGD.Commands.Tests
     // CommandMapper builds each command from a plan made at registration - offering the message, the registration and
     // the execution's lifetime as constructor arguments - or with a registered factory, and reports failures as the
     // family does: one as itself, several as one aggregate. A registration is checked when it is made and undone by
-    // terminating what it returns (CC-22, UH-16).
+    // terminating what it returns.
     [TestFixture]
     public class CommandMapperTests
     {
@@ -76,7 +76,7 @@ namespace OpenUGD.Commands.Tests
             Assert.Throws<ArgumentException>(() => mapper.RegisterCommand(typeof(Ledger)));
         }
 
-        // Found in review: a struct with a satisfiable constructor passed the registration check, and
+        // A struct with a satisfiable constructor passed the registration check, and
         // Context.Instantiate refuses every value type, so each Tell failed instead.
         [Test]
         public void Register_AStructCommand_ThrowsThen_NotAtTell()
@@ -87,7 +87,7 @@ namespace OpenUGD.Commands.Tests
             Assert.DoesNotThrow(() => _context.Tell(new Ping("nothing registered")));
         }
 
-        // ------------------------------------------------------------------ undoing a registration (CC-22)
+        // ------------------------------------------------------------------ undoing a registration
 
         [Test]
         public void Registration_TerminatingWhatRegisterReturns_Unregisters()
@@ -116,7 +116,7 @@ namespace OpenUGD.Commands.Tests
             CollectionAssert.AreEqual(new[] { "both", "both", "one left" }, _context.Resolve<Ledger>().Entries);
         }
 
-        // ------------------------------------------------------------------ checked at registration (CC-22)
+        // ------------------------------------------------------------------ checked at registration
 
         [Test]
         public void Register_ACommandWhoseConstructorCannotBeSatisfied_ThrowsThen_NotAtTell()
@@ -157,7 +157,7 @@ namespace OpenUGD.Commands.Tests
             Assert.Throws<InvalidOperationException>(() => mapper.RegisterCommand((m, l) => new ThrowingCommand()));
         }
 
-        // ------------------------------------------------------------------ a lifetime per execution (CC-22)
+        // ------------------------------------------------------------------ a lifetime per execution
 
         [Test]
         public void Command_GetsAFreshLifetimePerExecution_EndedWhenExecuteReturns()
@@ -198,7 +198,7 @@ namespace OpenUGD.Commands.Tests
             CollectionAssert.AreEqual(new[] { "one" }, _context.Resolve<Ledger>().Entries);
         }
 
-        // ------------------------------------------------------------------ factories: no reflection (UH-16)
+        // ------------------------------------------------------------------ factories: no reflection
 
         [Test]
         public void Factory_BuildsTheCommand_FromTheMessageAndAnExecutionLifetime()
@@ -290,7 +290,7 @@ namespace OpenUGD.Commands.Tests
             CollectionAssert.IsEmpty(_context.Resolve<Ledger>().Entries);
         }
 
-        // ------------------------------------------------------------------ one-time registrations (phase E)
+        // ------------------------------------------------------------------ one-time registrations
 
         // A one-time command that told its own message from Execute ran twice: the registration was terminated only
         // after Execute returned, so the nested dispatch still found it live.
@@ -330,7 +330,7 @@ namespace OpenUGD.Commands.Tests
                 "the nested Tell runs the permanent registration for the retold message, then the outer one resumes");
         }
 
-        // ------------------------------------------------------------------ failures: the family policy (phase E)
+        // ------------------------------------------------------------------ failures: the family policy
 
         // Every failure used to arrive in an AggregateException, a single one included, and CommandMap wrapped the
         // mapper's aggregate in a second one.
@@ -409,7 +409,7 @@ namespace OpenUGD.Commands.Tests
                 "the stack trace is the constructor's, not the activator's rethrow");
         }
 
-        // ------------------------------------------------------------------ no reflection per Tell (UH-16, phase E)
+        // ------------------------------------------------------------------ no reflection per Tell
 
         // A type registration went through Context.Instantiate on every Tell, which inspects the type each time.
         // The plan is now made at registration: a Tell does not touch the command's Type at all.
@@ -459,7 +459,7 @@ namespace OpenUGD.Commands.Tests
             StringAssert.Contains("ambiguous", thrown.Message);
         }
 
-        // ------------------------------------------------------------------ [Inject] members (phase E)
+        // ------------------------------------------------------------------ [Inject] members
 
         // [Inject] members were filled, and so first checked, only when the command was built on Tell.
         [Test]

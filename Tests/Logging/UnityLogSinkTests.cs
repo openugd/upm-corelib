@@ -3,7 +3,7 @@ using NUnit.Framework;
 
 namespace OpenUGD.Logging.Tests
 {
-    // CC-14: UseUnityConsole was documented as throwing NullReferenceException for a null argument, "neither is
+    // UseUnityConsole was documented as throwing NullReferenceException for a null argument, "neither is
     // checked" - a defect written up as behaviour. It checks its arguments now. No record is written, so nothing
     // reaches UnityEngine.Debug and no Unity runtime is needed.
     [TestFixture]

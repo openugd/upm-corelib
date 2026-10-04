@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace OpenUGD.Tests
 {
-    // UH-11, LS-19, CX-21: with domain reload disabled, Lifetime.Eternal survives from one play session to the next
+    // With domain reload disabled, Lifetime.Eternal survives from one play session to the next
     // with everything nested in it. PlaySession is the scope that ends with the session and starts afresh; the
     // Unity callbacks that start and end it are stood in for by Begin and End. No Unity runtime needed.
     [TestFixture]

@@ -1,10 +1,12 @@
 # CoreLib
 
-`com.openugd.corelib` is the Unity side of the OpenUGD family: `ContextBehaviour`, a `MonoBehaviour` that boots a
-[`com.openugd.context`](https://github.com/openugd/upm-context) `Context` and ends it with its GameObject, plus a
-presenter tree for UI composition, a command map for message handling and tagged logging. Use it when a Unity
-project composes its services with `com.openugd.context` and wants one tested entry point, scopes tied to
-GameObjects and the play session, and those three building blocks around it.
+[![OpenUPM](https://img.shields.io/npm/v/com.openugd.corelib?label=openupm&registry_uri=https://package.openupm.com)](https://openupm.com/packages/com.openugd.corelib/) [![Tests](https://github.com/openugd/upm-tools/actions/workflows/ci.yml/badge.svg)](https://github.com/openugd/upm-tools/actions/workflows/ci.yml)
+
+`com.openugd.corelib` is the Unity side of the [OpenUGD family](#the-openugd-family): `ContextBehaviour`, a
+`MonoBehaviour` that boots a [`com.openugd.context`](https://github.com/openugd/upm-context) `Context` and ends it
+with its GameObject, plus a presenter tree for UI composition, a command map for message handling and tagged
+logging. Use it when a Unity project composes its services with `com.openugd.context` and wants one tested entry
+point, scopes tied to GameObjects and the play session, and those three building blocks around it.
 
 The package is five assemblies, each named as if it were its own package. Presenters, commands and logging do not
 reference UnityEngine, so they run in a plain .NET test.
@@ -149,6 +151,13 @@ see the [`com.openugd.context` README](https://github.com/openugd/upm-context#re
 and child contexts. The *Bootstrap* sample is a larger version of this.
 
 ## Concepts
+
+Two types from the packages this one depends on appear in the examples. A `Lifetime`
+([`com.openugd.lifetime`](https://github.com/openugd/upm-lifetime#readme)) is a scope: the callbacks registered on
+it with `AddAction` run once, newest first, when it ends, and a lifetime created with `DefineNested` ends with its
+parent. Whoever creates one holds its `Lifetime.Definition` and ends it with `Terminate()`. A `Signal`
+([`com.openugd.signal`](https://github.com/openugd/upm-signal#readme)) is a typed event created on its owner's
+lifetime; `Subscribe` takes the subscriber's lifetime, and the handler is detached when either one ends.
 
 ### The boot: `ContextBehaviour`
 
@@ -545,6 +554,14 @@ your project, list the package under `testables` in `Packages/manifest.json`:
 Then open *Window > General > Test Runner* and run the *EditMode* and *PlayMode* tabs. The Unity Test Framework
 package must be installed; new projects include it.
 
+The checks also run in public CI: [openugd/upm-tools](https://github.com/openugd/upm-tools/actions/workflows/ci.yml)
+compiles this package, its samples and the complete examples in this README (those that declare a type) against Unity
+6000.0's assemblies and runs its engine-free tests on every change there and every Monday. The same CI runs Unity's
+linker over the commands and the presenter factory at Medium and High stripping and checks that the constructors and
+`[Inject]` members they need survive. The tests that need the editor (category `RequiresUnity`) and the PlayMode tests
+run in a real Unity 6000.0.41f1 editor before each release. For the 2.0.0 release, IL2CPP WebGL players built at
+Medium and High stripping, which boot a `ContextBehaviour` and use presenters and commands, were run as well.
+
 ## Upgrading to 2.0
 
 This section is for users of `com.openugd.corelib` 0.6.1. Version 2.0.0 requires Unity 6000.0 or newer and is
@@ -917,9 +934,10 @@ replaces them yet:
 - `PrefabResourceManager` (`OpenUGD.Utils`), whose only callers were their component providers.
 
 They will be replaced by one presenter host with policies in a separate package, `com.openugd.corelib.ui`, released
-as a 2.x. **If you need them now, stay on corelib 0.6.1.** Their last state before removal is kept on the branch
-`park/ui-services` of this repository as that package's starting point; it is not a drop-in for 2.0, because it
-registers through `BootPhase.Configure`, which `com.openugd.context` 2.0 does not have.
+as a 2.x. **If you need them now, stay on corelib 0.6.1.** Their code as released is in the `0.6.1` tag of this
+repository, under [`Runtime/Services/UI`](https://github.com/openugd/upm-corelib/tree/0.6.1/Runtime/Services/UI)
+(`PrefabResourceManager` under `Runtime/Utils`). It is not a drop-in for 2.0: it is built on the 0.6.1 composition
+layer, which 2.0 removes, and on `Widget`, which 2.0 replaces with `Presenter`.
 
 ### `ValueSubscriber` and `DisposableHandler` are removed
 
@@ -1007,12 +1025,41 @@ handle.Lifetime.AddAction(Release);
 - The `com.unity.ugui` dependency. A project that uses uGUI keeps it through its own manifest or through
   `com.openugd.corelib.widgets`.
 
+## The OpenUGD family
+
+Six packages, versioned together as 2.x and published on [OpenUPM](https://openupm.com/packages/?q=com.openugd)
+under the `com.openugd` scope. Installing one brings the ones it depends on.
+
+| Package | What it gives you | Depends on |
+| --- | --- | --- |
+| [Lifetime](https://github.com/openugd/upm-lifetime#readme) — `com.openugd.lifetime` | Scopes with deterministic, reverse-order clean-up | — |
+| [Signal](https://github.com/openugd/upm-signal#readme) — `com.openugd.signal` | Typed events whose subscriptions end with a lifetime | Lifetime |
+| [Context](https://github.com/openugd/upm-context#readme) — `com.openugd.context` | Dependency injection that validates the whole graph before it builds anything | Lifetime |
+| [CoreLib](https://github.com/openugd/upm-corelib#readme) — `com.openugd.corelib` | The Unity boundary: `ContextBehaviour`, presenters, commands, logging | Lifetime, Signal, Context |
+| [CoreLib uGUI Presenters](https://github.com/openugd/upm-corelib-widgets#readme) — `com.openugd.corelib.widgets` | Presenters that bind uGUI and TextMesh Pro controls to a model | CoreLib, Context, Signal, Lifetime, uGUI |
+| [uGUI Components](https://github.com/openugd/upm-ui#readme) — `com.openugd.ui` | Shader-free uGUI components: flip, gradient, invisible hit area | uGUI |
+
+Start with Lifetime and Signal for plain C# scopes and events, add Context for dependency injection, and CoreLib to
+run it inside a Unity scene. [`com.openugd.configuration`](https://github.com/openugd/upm-configuration), a
+string-keyed configuration for Context, is 0.x and not on OpenUPM yet. Other `com.openugd.*` packages on OpenUPM
+predate 2.0 and are not part of this family.
+
 ## Versioning
 
 The OpenUGD packages share a major version and have independent minor and patch versions. Each 2.x package works
 with the 2.x versions of its dependencies at or above the minimums declared in its `package.json`; for this package
 that is `com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context` 2.0.0. The changes in each version
 are in [CHANGELOG.md](CHANGELOG.md).
+
+## Contributing
+
+Report a bug or an idea at [github.com/openugd/upm-corelib/issues](https://github.com/openugd/upm-corelib/issues):
+include the Unity version, the package version and, for an exception, the full message. To work on the package, clone
+it, reference the clone from a Unity 6 project (`"com.openugd.corelib": "file:../path/to/upm-corelib"` in
+`Packages/manifest.json`), add `com.openugd.corelib` to `testables`, and run its tests in the Test Runner. The project
+also needs `com.openugd.lifetime`, `com.openugd.signal` and `com.openugd.context`: keep the scoped registry from
+[Install](#scoped-registry), or reference clones of them the same way. The checks CI runs are scripts in
+[openugd/upm-tools](https://github.com/openugd/upm-tools); its README shows how to run them locally.
 
 ## Licence
 

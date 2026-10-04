@@ -4,8 +4,8 @@ using System.Reflection;
 
 namespace OpenUGD.Tests
 {
-    // Reads what a method body calls and which static fields it loads, from its IL. Lets level 1, which has no Unity
-    // runtime, pin what Unity-bound code is wired to.
+    // Reads what a method body calls and which static fields it loads, from its IL. Lets the engine-free .NET run
+    // (level1.sh in openugd/upm-tools), which has no Unity runtime, pin what Unity-bound code is wired to.
     internal static class ILCalls
     {
         private const byte Call = 0x28, Callvirt = 0x6F, Ldsfld = 0x7E;

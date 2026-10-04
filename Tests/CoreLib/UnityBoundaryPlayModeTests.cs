@@ -17,7 +17,8 @@ using Object = UnityEngine.Object;
 namespace OpenUGD.Tests
 {
     // The Unity half of the boundary: what only a real engine can show. Play Mode, because Unity calls Awake and
-    // OnDestroy on an ordinary MonoBehaviour only in play mode. Level 1 skips these; level 2 runs them.
+    // OnDestroy on an ordinary MonoBehaviour only in play mode. The engine-free .NET run (level1.sh in
+    // openugd/upm-tools) skips these by their category; the Unity Test Runner runs them.
     [TestFixture]
     [Category("RequiresUnity")]
     public class UnityBoundaryPlayModeTests
@@ -42,7 +43,7 @@ namespace OpenUGD.Tests
             _scopes.Clear();
         }
 
-        // ------------------------------------------------------------------ ViewBehaviour (CC-5, UH-9)
+        // ------------------------------------------------------------------ ViewBehaviour
 
         [Test]
         public void ViewBehaviour_Lifetime_EndsWhenTheGameObjectIsDestroyed()
@@ -92,7 +93,7 @@ namespace OpenUGD.Tests
             Assert.IsTrue(lifetime.IsTerminated);
         }
 
-        // ------------------------------------------------------------------ Presenter liveness (UH-12)
+        // ------------------------------------------------------------------ Presenter liveness
 
         [Test]
         public void Presenter_ADestroyedUnityView_IsNotRendered()
@@ -109,7 +110,7 @@ namespace OpenUGD.Tests
             Assert.IsNotNull((object)presenter.View, "the reference is still held; only Unity's liveness says no");
         }
 
-        // ------------------------------------------------------------------ ContextBehaviour (CC-6, CC-7)
+        // ------------------------------------------------------------------ ContextBehaviour
 
         [Test]
         public void ContextBehaviour_PersistsAcrossScenes_ByDefault()
@@ -171,7 +172,7 @@ namespace OpenUGD.Tests
             Assert.Greater(fired, 0, "the override called base.Update(), so OnUpdate keeps firing");
         }
 
-        // ------------------------------------------------------------------ play session (UH-11)
+        // ------------------------------------------------------------------ play session
 
         [Test]
         public void ViewAndContext_NestTheirScopesInThePlaySession()
@@ -250,7 +251,7 @@ namespace OpenUGD.Tests
             PlaySession.Begin();
         }
 
-        // ------------------------------------------------------------------ boot failures (CC-28)
+        // ------------------------------------------------------------------ boot failures
 
         [UnityTest]
         public IEnumerator ContextBehaviour_WhenOnStartedThrows_DisposesTheContext_AndLeavesContextNull()
@@ -286,7 +287,7 @@ namespace OpenUGD.Tests
             Assert.AreEqual(2, behaviour.Boots, "and the new boot has started");
         }
 
-        // ------------------------------------------------------------------ ICoroutineProvider (CC-8)
+        // ------------------------------------------------------------------ ICoroutineProvider
 
         [Test]
         public void ContextBehaviour_AsCoroutineProvider_OnAnInactiveObject_Throws_InsteadOfReturningNull()
@@ -336,7 +337,7 @@ namespace OpenUGD.Tests
             Assert.Throws<InvalidOperationException>(() => provider.StartCoroutine(Frames(1, () => { })));
         }
 
-        // Found in review: the boot runs inside Awake, where isActiveAndEnabled is still false, and the check used to
+        // The boot runs inside Awake, where isActiveAndEnabled is still false, and the check used to
         // read it - so a service that started a coroutine while the context booted failed the boot.
         [UnityTest]
         public IEnumerator ContextBehaviour_AsCoroutineProvider_WorksFromTheBoot_WhichAwakeRuns()
@@ -349,8 +350,8 @@ namespace OpenUGD.Tests
             Assert.AreEqual(1, behaviour.Ran);
         }
 
-        // Found in review: Unity returns null for a coroutine that ends inside StartCoroutine, and the provider threw
-        // for it although the body had run.
+        // Unity returns null for a coroutine that ends inside StartCoroutine, and the provider threw for it although
+        // the body had run.
         [Test]
         public void ContextBehaviour_AsCoroutineProvider_ACoroutineThatEndsAtOnce_RunsAndReturnsAHandle()
         {
@@ -370,7 +371,7 @@ namespace OpenUGD.Tests
             then();
         }
 
-        // ------------------------------------------------------------------ the GameObject lifetime (LS-14)
+        // ------------------------------------------------------------------ the GameObject lifetime
 
         [Test]
         public void GetLifetime_OnAnActiveObject_EndsWhenTheObjectIsDestroyed()
@@ -446,7 +447,7 @@ namespace OpenUGD.Tests
             Assert.IsTrue(lifetime.IsTerminated);
         }
 
-        // ------------------------------------------------------------------ SignalMonoBehaviour (UH-10, CC-27)
+        // ------------------------------------------------------------------ SignalMonoBehaviour
 
         [Test]
         public void SignalMonoBehaviour_OnANeverActivatedObject_ItsSignalsThrow_InsteadOfLeakingAScope()
@@ -489,7 +490,7 @@ namespace OpenUGD.Tests
             Assert.AreEqual(1, destroyed);
         }
 
-        // ------------------------------------------------------------------ SignalMonoBehaviour (UH-9)
+        // ------------------------------------------------------------------ SignalMonoBehaviour
 
         [Test]
         public void SignalMonoBehaviour_AnOnDestroyOverrideThatCallsBase_StillRaisesDestroySignal()

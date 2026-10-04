@@ -90,7 +90,8 @@ README's "Upgrading to 2.0" section walks through each change with before and af
 ### Removed
 - **The UI services**: the window, HUD and tooltip services, `ITransformProvider`, `TransformProviderComponent`,
   `IUIContextServiceSetup`, and `PrefabResourceManager`. They come back as `com.openugd.corelib.ui`, a later 2.x;
-  until then stay on 0.6.1 if you need them. The code is on the branch `park/ui-services`.
+  until then stay on 0.6.1 if you need them. Their code as released is in the `0.6.1` tag, under
+  `Runtime/Services/UI` (`PrefabResourceManager` under `Runtime/Utils`).
 - **The composition layer**: `ContextStartup`, `IContextSetup`, `IContextServiceSetup`, the service builder, its
   options, resolvers and observers, `UnityDebugServiceObserver`, `OpenUGD.Core.Context`, `IContext`,
   `IInjectorProvider`. `com.openugd.context` replaces it.
@@ -130,3 +131,11 @@ README's "Upgrading to 2.0" section walks through each change with before and af
 - A derived logger rebuilt its tag path on every write.
 - The multi-display components leaked a scope when never activated, lost their instances on scene loads and ran
   `Rebuild` in edit mode; fixed in the Multi Instance sample's copies.
+
+## Earlier versions
+
+Versions before 2.0.0 were released without changelog entries. The tags `0.1.0` to `0.6.1` in this repository mark
+most of them; 0.0.1 and 0.2.0, published on OpenUPM, have no tag. The README's "Upgrading to 2.0" section covers
+the move from 0.6.1.
+
+[2.0.0]: https://github.com/openugd/upm-corelib/compare/0.6.1...2.0.0

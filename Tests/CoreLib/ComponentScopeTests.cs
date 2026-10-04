@@ -7,10 +7,10 @@ using UnityEngine;
 
 namespace OpenUGD.Tests
 {
-    // LS-14, UH-10, CC-27: a component's scope is created in Awake and nowhere earlier, because Unity never sends
-    // OnDestroy to an object that was never activated. A property getter that creates the scope on first read - the
-    // way SignalMonoBehaviour's signals did - leaves it behind on such an object. Read from the IL, so level 1 checks
-    // it; UnityBoundaryPlayModeTests checks the behaviour in the engine.
+    // A component's scope is created in Awake and nowhere earlier, because Unity never sends OnDestroy to an object
+    // that was never activated. A property getter that creates the scope on first read - the way
+    // SignalMonoBehaviour's signals did - leaves it behind on such an object. Read from the IL, so the engine-free
+    // .NET run checks it too; UnityBoundaryPlayModeTests checks the behaviour in the engine.
     [TestFixture]
     public class ComponentScopeTests
     {

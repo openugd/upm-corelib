@@ -8,7 +8,7 @@ using OpenUGD.Utils.Components;
 
 namespace OpenUGD.Tests
 {
-    // CC-6, UH-9: Unity finds a message method by name, so a private Update in a base class is silently replaced by
+    // Unity finds a message method by name, so a private Update in a base class is silently replaced by
     // a subclass's own Update, and the base's work — firing a signal, ending a scope — stops with no warning. As
     // protected virtual methods, a subclass declaring one without `override` gets CS0114 instead. This pins the
     // exact set of messages each boundary class handles, and their shape. Reflection only: no Unity runtime.
@@ -45,6 +45,8 @@ namespace OpenUGD.Tests
 
             var lifetime = typeof(ViewBehaviour).GetProperty("Lifetime", Declared);
             Assert.IsNotNull(lifetime);
+            // CC-5 in the message tags the rule that a view's Lifetime is public, so a presenter can bind to the
+            // view's end.
             Assert.IsTrue(lifetime.GetMethod.IsPublic, "a presenter must be able to bind to the view's end (CC-5)");
         }
 

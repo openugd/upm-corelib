@@ -100,7 +100,7 @@ namespace OpenUGD.Logging.Tests
         [Test]
         public void Writes_ReturnTheLoggerTheyWereCalledOn()
         {
-            // CC-13: the root used to return a hidden inner logger, whose Flag silenced the whole tree when a
+            // The root used to return a hidden inner logger, whose Flag silenced the whole tree when a
             // chained call set it.
             var root = new LogRoot("app");
             var child = root.WithTag("child");
@@ -272,7 +272,7 @@ namespace OpenUGD.Logging.Tests
         [Test]
         public void ILog_IsNotDisposable_ButTheRootIs()
         {
-            // CC-11: a container disposes what it built and is IDisposable. A tagged logger built by a factory
+            // A container disposes what it built and is IDisposable. A tagged logger built by a factory
             // registration was disposed with the context, and every later write on it threw.
             Assert.IsFalse(typeof(IDisposable).IsAssignableFrom(typeof(ILog)));
             Assert.IsFalse(new LogRoot("app").WithTag("child") is IDisposable);
@@ -352,7 +352,7 @@ namespace OpenUGD.Logging.Tests
         [Test]
         public void WritingFromOtherThreads_WhileSinksComeAndGo_NeverThrows()
         {
-            // CC-12: the sink list was a List<T> read by the writer and changed by Subscribe/Unsubscribe; a
+            // The sink list was a List<T> read by the writer and changed by Subscribe/Unsubscribe; a
             // Task.Run writer got "Collection was modified".
             var root = new LogRoot("app");
             var steady = new CountingSink();

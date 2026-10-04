@@ -4,10 +4,10 @@ using NUnit.Framework;
 namespace OpenUGD.Presenters.Tests
 {
     // Presenter.Attach -> SetModel -> SetView is the open sequence of a presenter-opening service, and what
-    // replaced Presenter.Internal.Ready. The 0.6.x UI services that ran it left corelib in 2.0.0 (branch
-    // park/ui-services, future com.openugd.corelib.ui); the sequence stays pinned here because Presenter is what
-    // any such host builds on. If it ever stops producing exactly one wiring and one render with both halves
-    // present, deleting Ready was wrong and a host needs a push again.
+    // replaced Presenter.Internal.Ready. The 0.6.x UI services that ran it left corelib in 2.0.0, to be replaced by
+    // com.openugd.corelib.ui; the sequence stays pinned here because Presenter is what any such host builds on. If
+    // it ever stops producing exactly one wiring and one render with both halves present, deleting Ready was wrong
+    // and a host needs a push again.
     //
     // Everything here is public API: a host in another assembly can do exactly this, with no InternalsVisibleTo.
     [TestFixture]

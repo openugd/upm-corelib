@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace OpenUGD.Tests
 {
-    // CC-8: ICoroutineProvider must throw when it cannot start a coroutine and never return null. ContextBehaviour
+    // ICoroutineProvider must throw when it cannot start a coroutine and never return null. ContextBehaviour
     // used to satisfy the interface with MonoBehaviour's inherited StartCoroutine — the compiler bridges the
     // interface to it with a private stub — and that method returns null for an inactive GameObject. Without the
     // engine, the implementation is checked by what it calls; UnityBoundaryPlayModeTests checks what it does.
@@ -44,8 +44,8 @@ namespace OpenUGD.Tests
             Assert.IsTrue(stop.Any(m => m.DeclaringType?.Name == "CoroutineHost" && m.Name == "Stop"));
         }
 
-        // Found in review. Behaviour.isActiveAndEnabled is Unity's IsAddedToManager, false until OnEnable, so a check
-        // on it refused coroutines started from Awake - where ContextBehaviour runs its boot, services included -
+        // Behaviour.isActiveAndEnabled is Unity's IsAddedToManager, false until OnEnable, so a check on it refused
+        // coroutines started from Awake - where ContextBehaviour runs its boot, services included -
         // although Unity runs them. Enabled and active in the hierarchy is what it means once OnEnable has run.
         [Test]
         public void CoroutineHost_ChecksEnabledAndActiveInHierarchy_NotIsActiveAndEnabled_WhichIsFalseInAwake()
@@ -59,8 +59,8 @@ namespace OpenUGD.Tests
             CollectionAssert.Contains(calls, "GameObject.get_activeInHierarchy");
         }
 
-        // Found in review. Unity's StartCoroutine returns null for a coroutine whose first step is its last, so the
-        // "never null" backstop threw for a body that had run in full. The body is wrapped so that it gets a handle.
+        // Unity's StartCoroutine returns null for a coroutine whose first step is its last, so the "never null"
+        // backstop threw for a body that had run in full. The body is wrapped so that it gets a handle.
         [Test]
         public void HandleKeeper_ABodyThatEndsInItsFirstStep_RunsInFull_ThenWaitsOneEmptyStep()
         {
